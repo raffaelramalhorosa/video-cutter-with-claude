@@ -16,3 +16,9 @@ __pycache__/
 
 # Config local da maquina (nao deve ir para o repo publico)
 .claude/settings.local.json
+
+# Dependencias do Remotion (geradas por npm install)
+remotion/node_modules/
+
+# Build artifacts do Remotion
+remotion/out/

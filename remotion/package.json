@@ -1,0 +1,19 @@
+{
+  "name": "claude-to-premier-motion",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Clipes de texto animado (motion design) renderizados com Remotion para o claude-to-premier.",
+  "scripts": {
+    "render": "remotion render"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "remotion": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "typescript": "^5.7.0"
+  }
+}

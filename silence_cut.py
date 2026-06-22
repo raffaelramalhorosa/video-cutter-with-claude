@@ -176,6 +176,47 @@ def build_clips(keeps, info):
 
 
 # ---------------------------------------------------------------------------
+# Mapeamento de tempo (video original -> timeline ja cortada)
+# ---------------------------------------------------------------------------
+def map_time_to_timeline(t, clips, fps):
+    """
+    Converte um instante `t` (segundos no video ORIGINAL) para o frame
+    correspondente na timeline pos-corte. Se `t` cair dentro de um trecho
+    cortado (silencio removido), ancora no clipe mais proximo em vez de
+    falhar -- e avisa isso via `anchored=True` no retorno.
+
+    Retorna {"frame": int, "anchored": bool}.
+    """
+    if not clips:
+        raise ValueError("clips vazio -- nao ha timeline para mapear")
+
+    # Dentro de algum trecho mantido: posicao proporcional dentro do clipe.
+    for clip in clips:
+        if clip["sec_in"] <= t < clip["sec_out"]:
+            offset_frames = int(round((t - clip["sec_in"]) * fps))
+            return {"frame": clip["tl_start"] + offset_frames, "anchored": False}
+
+    # Antes do primeiro clipe mantido: ancora no inicio da timeline.
+    if t < clips[0]["sec_in"]:
+        return {"frame": clips[0]["tl_start"], "anchored": True}
+
+    # Depois do ultimo clipe mantido: ancora no fim da timeline.
+    if t >= clips[-1]["sec_out"]:
+        return {"frame": clips[-1]["tl_end"], "anchored": True}
+
+    # Dentro de um corte entre dois clipes mantidos: ancora na borda mais proxima.
+    for prev_clip, next_clip in zip(clips, clips[1:]):
+        if prev_clip["sec_out"] <= t < next_clip["sec_in"]:
+            dist_prev = t - prev_clip["sec_out"]
+            dist_next = next_clip["sec_in"] - t
+            if dist_prev <= dist_next:
+                return {"frame": prev_clip["tl_end"], "anchored": True}
+            return {"frame": next_clip["tl_start"], "anchored": True}
+
+    raise ValueError(f"nao foi possivel mapear t={t} para a timeline")
+
+
+# ---------------------------------------------------------------------------
 # Geracao do XML FCP7 (xmeml v4)
 # ---------------------------------------------------------------------------
 def rate_block(tb, ntsc, indent):
@@ -273,7 +314,53 @@ def audio_clipitem(i, ch, clip, tb, ntsc, src_frames, fname, channels):
     )
 
 
-def build_xml(info, clips, src_path, seq_name):
+def marker_block(marker, indent):
+    """Um <marker> no nivel da <sequence> (capitulo)."""
+    return (f"{indent}<marker>\n"
+            f"{indent}  <comment></comment>\n"
+            f"{indent}  <name>{marker['name']}</name>\n"
+            f"{indent}  <in>{marker['frame']}</in>\n"
+            f"{indent}  <out>-1</out>\n"
+            f"{indent}</marker>\n")
+
+
+def motion_clipitem(i, item, tb, ntsc):
+    """Clipe da 2a trilha de video (motion design) -- sem audio, sem links."""
+    abspath = os.path.abspath(item["path"])
+    pathurl = "file://localhost/" + quote(abspath.replace("\\", "/"), safe="/:")
+    fname = os.path.basename(abspath)
+    frame_len = item["frame_len"]
+    return (
+        f'        <clipitem id="clipitem-m{i}">\n'
+        f"          <name>{fname}</name>\n"
+        "          <enabled>TRUE</enabled>\n"
+        f"          <duration>{frame_len}</duration>\n"
+        + rate_block(tb, ntsc, "          ")
+        + f"          <start>{item['frame_start']}</start>\n"
+        f"          <end>{item['frame_start'] + frame_len}</end>\n"
+        "          <in>0</in>\n"
+        f"          <out>{frame_len}</out>\n"
+        f'          <file id="file-motion-{i}">\n'
+        f"            <name>{fname}</name>\n"
+        f"            <pathurl>{pathurl}</pathurl>\n"
+        + rate_block(tb, ntsc, "            ")
+        + f"            <duration>{frame_len}</duration>\n"
+        "            <media>\n"
+        "              <video>\n"
+        "                <samplecharacteristics>\n"
+        + rate_block(tb, ntsc, "                  ")
+        + "                </samplecharacteristics>\n"
+        "              </video>\n"
+        "            </media>\n"
+        "          </file>\n"
+        "          <sourcetrack>\n"
+        "            <mediatype>video</mediatype>\n"
+        "          </sourcetrack>\n"
+        "        </clipitem>\n"
+    )
+
+
+def build_xml(info, clips, src_path, seq_name, markers=None, motion_track=None):
     tb, ntsc = timebase_ntsc(info["fps_num"], info["fps_den"], info["fps"])
     src_frames = int(round(info["duration"] * info["fps"]))
     channels = info["channels"]
@@ -318,6 +405,11 @@ def build_xml(info, clips, src_path, seq_name):
         xml.append(video_clipitem(i, clip, tb, ntsc, src_frames, fname,
                                   channels, file_xml).rstrip("\n"))
     xml.append("        </track>")
+    if motion_track:
+        xml.append("        <track>")
+        for i, item in enumerate(motion_track):
+            xml.append(motion_clipitem(i, item, tb, ntsc).rstrip("\n"))
+        xml.append("        </track>")
     xml.append("      </video>")
 
     # ---- AUDIO ---- (uma track por canal)
@@ -337,6 +429,9 @@ def build_xml(info, clips, src_path, seq_name):
     xml.append("      </audio>")
 
     xml.append("    </media>")
+    if markers:
+        for marker in markers:
+            xml.append(marker_block(marker, "    ").rstrip("\n"))
     xml.append("  </sequence>")
     xml.append("</xmeml>")
     return "\n".join(xml) + "\n"
@@ -362,6 +457,46 @@ def build_preview(ffmpeg, src_path, keeps, out_path):
            "-c:v", "libx264", "-c:a", "aac", out_path]
     subprocess.run(cmd, capture_output=True, text=True,
                    encoding="utf-8", errors="replace")
+
+
+# ---------------------------------------------------------------------------
+# Motion design (clipe separado, fundo transparente, sem audio)
+# ---------------------------------------------------------------------------
+# O clipe de texto animado (.mov ProRes 4444 com alpha) e gerado pelo projeto
+# Remotion em remotion/ (React) -- ver render_motion_remotion() em server.py.
+# Aqui fica apenas o compositor do preview (texto sobre o video, em H.264).
+
+
+def render_motion_preview(ffmpeg, src_video, mov_path, start_s, duration,
+                          out_path, preview_width=540):
+    """
+    Gera um MP4 (H.264) de preview do motion design para tocar no navegador.
+
+    O .mov entregue ao Premiere e ProRes 4444 com alpha -- e navegador nenhum
+    reproduz ProRes. Aqui sobrepomos o texto (mov) ao trecho real do video de
+    origem e exportamos em H.264, que toca em qualquer navegador. Assim o
+    usuario ve exatamente como o texto vai ficar sobre o video.
+
+    O filtergraph nao referencia caminhos (so os rotulos [0:v]/[1:v]), entao
+    nao ha o problema de escapar "C:\\" -- os arquivos entram como -i normais.
+    """
+    out_dir = os.path.dirname(os.path.abspath(out_path)) or "."
+    os.makedirs(out_dir, exist_ok=True)
+    w = preview_width
+    fc = (f"[0:v]scale={w}:-2,setpts=PTS-STARTPTS[bg];"
+          f"[1:v]scale={w}:-2,setpts=PTS-STARTPTS[fg];"
+          "[bg][fg]overlay=0:0,format=yuv420p[v]")
+    cmd = [ffmpeg, "-y", "-hide_banner", "-nostats",
+           "-ss", str(start_s), "-t", str(duration), "-i", src_video,
+           "-i", os.path.abspath(mov_path),
+           "-filter_complex", fc, "-map", "[v]", "-an",
+           "-c:v", "libx264", "-crf", "28", "-preset", "veryfast",
+           "-movflags", "+faststart", out_path]
+    raw = subprocess.run(cmd, capture_output=True, text=True,
+                         encoding="utf-8", errors="replace")
+    if raw.returncode != 0 or not os.path.isfile(out_path):
+        raise RuntimeError(f"falha ao gerar preview do motion: {raw.stderr}")
+    return os.path.abspath(out_path)
 
 
 # ---------------------------------------------------------------------------

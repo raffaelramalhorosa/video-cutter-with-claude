@@ -117,6 +117,36 @@ def detect(params):
     }
 
 
+def _build_markers(clips, analysis):
+    """Capitulos da analise de IA -> lista {name, frame} para o build_xml."""
+    chapters = analysis.get("chapters") or []
+    fps = INFO["fps"]
+    markers = []
+    for ch in chapters:
+        mapped = core.map_time_to_timeline(ch["start_s"], clips, fps)
+        markers.append({"name": ch["title"], "frame": mapped["frame"]})
+    return markers
+
+
+def _build_motion_track(clips, analysis, motion_indices):
+    """Clipes de motion design ja gerados -> lista {path, frame_start, frame_len}."""
+    items = analysis.get("motion_design") or []
+    fps = INFO["fps"]
+    motion_track = []
+    for idx in motion_indices:
+        if not (0 <= idx < len(items)):
+            continue
+        mov_path = os.path.join(OUTDIR, "motion", f"{idx}.mov")
+        if not os.path.isfile(mov_path):
+            continue
+        item = items[idx]
+        mapped = core.map_time_to_timeline(item["start_s"], clips, fps)
+        frame_len = int(round((item["end_s"] - item["start_s"]) * fps))
+        motion_track.append({"path": mov_path, "frame_start": mapped["frame"],
+                             "frame_len": frame_len})
+    return motion_track
+
+
 def export(params):
     """Gera timeline.xml + cortes.json em output/."""
     clips, silences = compute(params)
@@ -125,8 +155,13 @@ def export(params):
 
     os.makedirs(OUTDIR, exist_ok=True)
     seq_name = params.get("seq_name", "Auto-Cut")
+    analysis = read_analysis()
 
-    xml = core.build_xml(INFO, clips, VIDEO, seq_name)
+    markers = _build_markers(clips, analysis) if params.get("chapters_on") else None
+    motion_indices = params.get("motion_indices") or []
+    motion_track = _build_motion_track(clips, analysis, motion_indices) if motion_indices else None
+
+    xml = core.build_xml(INFO, clips, VIDEO, seq_name, markers=markers, motion_track=motion_track)
     xml_path = os.path.join(OUTDIR, "timeline.xml")
     with open(xml_path, "w", encoding="utf-8") as f:
         f.write(xml)
@@ -304,6 +339,96 @@ def export_srt(params):
     return {"ok": True, "count": len(segs), "srt_path": srt_path, "txt_path": txt_path}
 
 
+REMOTION_DIR = os.path.join(BASE, "remotion")
+
+
+def render_motion_remotion(text, duration, out_path, width, height, fps, position):
+    """
+    Renderiza o clipe de texto animado (.mov ProRes 4444 com alpha) usando o
+    projeto Remotion (React) em remotion/. As props vao por arquivo JSON (evita
+    problema de aspas/acentos no argv). O fundo e transparente -- o clipe vira a
+    2a trilha de video no Premiere.
+
+    Requer Node.js + o `npm install` do remotion/ (a skill /setup cuida disso).
+    """
+    if not os.path.isdir(os.path.join(REMOTION_DIR, "node_modules")):
+        raise RuntimeError("Remotion nao instalado. Rode a skill /setup ou "
+                           "'npm install' na pasta remotion/.")
+
+    props = {
+        "text": text,
+        "durationInSeconds": duration,
+        "fps": int(round(fps)),
+        "width": int(width),
+        "height": int(height),
+        "position": position,
+    }
+    props_path = os.path.abspath(out_path) + ".props.json"
+    with open(props_path, "w", encoding="utf-8") as f:
+        json.dump(props, f, ensure_ascii=False)
+
+    # npx e um .cmd no Windows -- roda via "cmd /c" para o subprocess achar.
+    base_cmd = (["cmd", "/c", "npx"] if os.name == "nt" else ["npx"])
+    cmd = base_cmd + [
+        "remotion", "render", "src/index.ts", "MotionText",
+        os.path.abspath(out_path), f"--props={props_path}",
+        "--codec=prores", "--prores-profile=4444",
+        "--image-format=png", "--pixel-format=yuva444p10le", "--log=error",
+    ]
+    try:
+        raw = subprocess.run(cmd, capture_output=True, text=True,
+                             encoding="utf-8", errors="replace",
+                             cwd=REMOTION_DIR, timeout=600)
+    finally:
+        try:
+            os.remove(props_path)
+        except OSError:
+            pass
+
+    if raw.returncode != 0 or not os.path.isfile(out_path):
+        raise RuntimeError(f"falha ao gerar motion clip (Remotion): {raw.stderr[-800:]}")
+    return os.path.abspath(out_path)
+
+
+def render_motion(params):
+    """Gera output/motion/<i>.mov a partir de analysis.motion_design[i]."""
+    idx = params.get("index")
+    if idx is None:
+        return {"ok": False, "error": "Faltou o indice do item de motion design."}
+
+    analysis = read_analysis()
+    items = analysis.get("motion_design") or []
+    if not (0 <= idx < len(items)):
+        return {"ok": False, "error": "Indice de motion design invalido."}
+
+    item = items[idx]
+    duration = round(item["end_s"] - item["start_s"], 3)
+    if duration <= 0:
+        return {"ok": False, "error": "Duracao invalida para esse trecho."}
+
+    position = params.get("position", "bottom")
+    if position not in ("bottom", "center", "top"):
+        position = "bottom"
+
+    motion_dir = os.path.join(OUTDIR, "motion")
+    os.makedirs(motion_dir, exist_ok=True)
+    out_path = os.path.join(motion_dir, f"{idx}.mov")
+    preview_path = os.path.join(motion_dir, f"{idx}.preview.mp4")
+    try:
+        render_motion_remotion(item["frase"], duration, out_path,
+                               INFO["width"], INFO["height"], INFO["fps"],
+                               position)
+        # Preview H.264 (texto sobre o video real) para tocar no navegador --
+        # o .mov ProRes entregue ao Premiere nao toca em navegador.
+        core.render_motion_preview(FFMPEG, VIDEO, out_path, item["start_s"],
+                                   duration, preview_path)
+    except RuntimeError as e:
+        return {"ok": False, "error": str(e)}
+
+    return {"ok": True, "path": out_path, "preview": preview_path,
+            "duration": duration, "index": idx}
+
+
 def read_analysis():
     """Le output/analise.json (gravado pelo Claude) para o painel exibir."""
     path = os.path.join(OUTDIR, "analise.json")
@@ -423,13 +548,22 @@ class Handler(BaseHTTPRequestHandler):
         self._safe_write(data)
 
     def _serve_media(self):
-        """Serve o video com suporte a Range (necessario para o player buscar)."""
-        path = VIDEO
+        """Serve o video atual com suporte a Range (necessario para o player buscar)."""
+        ctype = "video/quicktime" if VIDEO.lower().endswith(".mov") else "video/mp4"
+        self._serve_range(VIDEO, ctype)
+
+    def _serve_motion(self, path):
+        """Serve um arquivo de motion design (preview .mp4 ou .mov) com Range."""
+        ext = os.path.splitext(path)[1].lower()
+        ctype = {".mp4": "video/mp4", ".webm": "video/webm"}.get(ext, "video/quicktime")
+        self._serve_range(path, ctype)
+
+    def _serve_range(self, path, ctype):
+        """Serve um arquivo de video com suporte a Range (necessario para o player buscar)."""
         if not os.path.isfile(path):
             self.send_error(404)
             return
         size = os.path.getsize(path)
-        ctype = "video/quicktime" if path.lower().endswith(".mov") else "video/mp4"
         rng = self.headers.get("Range")
 
         if rng:
@@ -473,6 +607,9 @@ class Handler(BaseHTTPRequestHandler):
                                "text/css; charset=utf-8")
         elif path == "/media":
             self._serve_media()
+        elif path.startswith("/motion/"):
+            fname = os.path.basename(path)  # so o nome -- sem permitir sair da pasta motion/
+            self._serve_motion(os.path.join(OUTDIR, "motion", fname))
         elif path == "/api/analysis":
             self._json(read_analysis())
         elif path == "/api/info":
@@ -512,6 +649,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(export_srt(params))
         elif path == "/api/pick":
             self._json(pick_file())
+        elif path == "/api/motion/render":
+            self._json(render_motion(params))
         else:
             self.send_error(404)
 

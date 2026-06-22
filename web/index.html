@@ -88,6 +88,24 @@
       <tbody id="clipRows"></tbody>
     </table>
   </div>
+
+  <div class="bg-bg-secondary rounded-md p-4 mb-4 hidden" id="chaptersCard">
+    <div class="flex items-center justify-between gap-3 mb-2.5">
+      <p class="text-text-secondary text-xs uppercase tracking-wide m-0">Capítulos</p>
+      <button id="btnCopyChapters" class="bg-bg-secondary text-text-primary rounded-sm px-2.5 py-1.5 text-xs hover:bg-bg-secondary/70 transition-colors">Copiar lista</button>
+    </div>
+    <div id="chaptersList" class="flex flex-col gap-1"></div>
+  </div>
+
+  <div class="bg-bg-secondary rounded-md p-4 mb-4 hidden" id="editSuggestionsCard">
+    <p class="text-text-secondary text-xs uppercase tracking-wide mb-2.5">Sugestões de edição</p>
+    <div id="editSuggestionsList" class="flex flex-col gap-2"></div>
+  </div>
+
+  <div class="bg-bg-secondary rounded-md p-4 mb-4 hidden" id="motionCard">
+    <p class="text-text-secondary text-xs uppercase tracking-wide mb-2.5">Motion design</p>
+    <div id="motionList" class="flex flex-col gap-2.5"></div>
+  </div>
   </div><!-- col esquerda -->
 
   <div class="static min-[900px]:sticky min-[900px]:top-5">
@@ -129,6 +147,7 @@ let VIDEO_DIR = "";     // pasta do vídeo atual (ponto de partida do navegador)
 let transSegs = [];     // segmentos da transcrição (editáveis pelo usuário)
 let analysis = null;    // análise de IA carregada (output/analise.json)
 let manualCuts = [];    // trechos removidos do vídeo (cortes sugeridos aplicados): [[ini,fim],...]
+let motionState = {};   // índice (em analysis.motion_design) -> {generating, path, included}
 
 const PARAMS = ["threshold", "min_silence", "margin", "min_clip"];
 
@@ -137,6 +156,17 @@ function fmt(s) {
   const m = Math.floor(s / 60);
   const r = (s - m * 60).toFixed(1).padStart(4, "0");
   return `${m}:${r}`;
+}
+
+// --- formatação mm:ss (sem decimais) -- padrão de capítulo do YouTube ---
+function toMMSS(s) {
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const mm = h > 0 ? String(m).padStart(2, "0") : String(m);
+  const ss = String(sec).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
 function getParams() {
@@ -265,7 +295,15 @@ function loop() {
 // --- exportar ---
 $("btnExport").addEventListener("click", async () => {
   setStatus("Exportando…");
-  const body = { ...getParams(), seq_name: "Auto-Cut" };
+  const motionIndices = Object.keys(motionState)
+    .filter((i) => motionState[i].path && motionState[i].included)
+    .map(Number);
+  const body = {
+    ...getParams(),
+    seq_name: "Auto-Cut",
+    chapters_on: !!(analysis && analysis.chapters && analysis.chapters.length),
+    motion_indices: motionIndices,
+  };
   const res = await fetch("/api/export", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -338,7 +376,11 @@ async function transcribe() {
   const btn = $("btnTranscribe");
   btn.disabled = true;
   setTransStatus("");
-  analysis = null;  // a análise antiga não vale para a nova transcrição
+  analysis = null;   // a análise antiga não vale para a nova transcrição
+  motionState = {};  // clipes de motion design eram de outra análise/vídeo
+  $("chaptersCard").classList.add("hidden");
+  $("editSuggestionsCard").classList.add("hidden");
+  $("motionCard").classList.add("hidden");
   $("transcript").innerHTML =
     `<div class="flex items-center gap-2.5 text-text-secondary text-[13px] py-2">` +
     `<span class="w-4 h-4 rounded-full border-2 border-text-muted/30 border-t-text-primary animate-spin"></span>` +
@@ -486,7 +528,11 @@ async function applyAllCuts(cutSegs) {
 }
 
 function applyAnalysisToDOM() {
-  if (!analysis || !analysis.segments) return;
+  if (!analysis) return;
+  renderChapters();
+  renderEditSuggestions();
+  renderMotionDesign();
+  if (!analysis.segments) return;
   const wrap = $("transcript");
 
   // limpa marcações de uma análise anterior (evita sobras de outro vídeo)
@@ -549,6 +595,136 @@ function applyAnalysisToDOM() {
 
     el.appendChild(box);
   }
+}
+
+// --- card "Capítulos": lista clicável + copiar para a descrição do YouTube ---
+function renderChapters() {
+  const card = $("chaptersCard");
+  const list = $("chaptersList");
+  const chapters = analysis && analysis.chapters;
+  if (!chapters || !chapters.length) { card.classList.add("hidden"); list.innerHTML = ""; return; }
+  card.classList.remove("hidden");
+  list.innerHTML = "";
+  chapters.forEach((c) => {
+    const row = document.createElement("div");
+    row.className = "flex gap-3 text-[13px] cursor-pointer rounded-[4px] px-1 py-1 hover:bg-bg/40";
+    row.innerHTML = `<span class="text-text-muted tabular-nums whitespace-nowrap">${toMMSS(c.start_s)}</span><span class="text-text-primary">${escHtml(c.title)}</span>`;
+    row.onclick = () => { player.currentTime = c.start_s; player.play(); };
+    list.appendChild(row);
+  });
+}
+
+$("btnCopyChapters").addEventListener("click", async () => {
+  const chapters = (analysis && analysis.chapters) || [];
+  const text = chapters.map((c) => `${toMMSS(c.start_s)} - ${c.title}`).join("\n");
+  try {
+    await navigator.clipboard.writeText(text);
+    setStatus("Lista de capítulos copiada.", true);
+  } catch (e) {
+    setStatus("Não foi possível copiar. Selecione o texto manualmente.");
+  }
+});
+
+// --- card "Sugestões de edição": feedback de ritmo/estrutura (diferente das correções de português) ---
+function renderEditSuggestions() {
+  const card = $("editSuggestionsCard");
+  const list = $("editSuggestionsList");
+  const sugs = analysis && analysis.edit_suggestions;
+  if (!sugs || !sugs.length) { card.classList.add("hidden"); list.innerHTML = ""; return; }
+  card.classList.remove("hidden");
+  list.innerHTML = "";
+  sugs.forEach((s) => {
+    const row = document.createElement("div");
+    row.className = "text-[13px]";
+    row.innerHTML =
+      `<span class="t text-text-muted tabular-nums cursor-pointer hover:text-text-primary">${toMMSS(s.start_s)}–${toMMSS(s.end_s)}</span> ` +
+      `<span class="text-accent-soft">(${escHtml(s.tipo)})</span> ` +
+      `<span class="text-text-secondary">${escHtml(s.sugestao)}</span>`;
+    row.querySelector(".t").onclick = () => { player.currentTime = s.start_s; player.play(); };
+    list.appendChild(row);
+  });
+}
+
+// --- card "Motion design": gerar (opt-in, por frase) um clipe separado, com fundo transparente ---
+// seletor de posição do texto no vídeo (inferior/centro/superior)
+function motionPosHtml(i, st) {
+  const opts = [["bottom", "Inferior"], ["center", "Centro"], ["top", "Superior"]];
+  return `<select id="motionPos${i}" class="text-text-primary bg-bg-secondary rounded-sm px-2 py-1 text-xs border border-text-muted/20">` +
+    opts.map(([v, l]) => `<option value="${v}" ${st.position === v ? "selected" : ""}>${l}</option>`).join("") +
+    `</select>`;
+}
+
+function motionRowHtml(i, it, st) {
+  const timeLabel = `${toMMSS(it.start_s)}–${toMMSS(it.end_s)}`;
+  let action;
+  if (st.generating) {
+    action = `<span class="flex items-center gap-1.5 text-text-secondary text-xs">` +
+      `<span class="w-3.5 h-3.5 rounded-full border-2 border-text-muted/30 border-t-text-primary animate-spin"></span>Gerando…</span>`;
+  } else if (st.path) {
+    action =
+      `<div class="flex items-center gap-2 flex-wrap">` +
+      motionPosHtml(i, st) +
+      `<button id="motionGen${i}" class="bg-bg-secondary text-text-primary rounded-sm px-2.5 py-1.5 text-xs hover:bg-bg-secondary/70 transition-colors">Regerar</button>` +
+      `<label class="flex items-center gap-1.5 text-xs text-text-secondary">` +
+      `<input type="checkbox" id="motionInc${i}" class="accent-accent" ${st.included ? "checked" : ""}>Incluir na exportação</label></div>` +
+      `<video src="/motion/${i}.preview.mp4?ts=${st.ts}" controls class="w-full max-h-[120px] bg-black rounded-sm mt-1.5"></video>`;
+  } else {
+    action = `<div class="flex items-center gap-2">` + motionPosHtml(i, st) +
+      `<button id="motionGen${i}" class="bg-bg-secondary text-text-primary rounded-sm px-2.5 py-1.5 text-xs hover:bg-bg-secondary/70 transition-colors">Gerar</button></div>`;
+  }
+  return `<div class="flex justify-between items-baseline gap-3"><span class="text-text-muted tabular-nums text-xs whitespace-nowrap">${timeLabel}</span>` +
+         `<span class="text-text-primary text-[13px] flex-1">"${escHtml(it.frase)}"</span></div>` +
+         `<div>${action}</div>`;
+}
+
+function wireMotionRow(i, it) {
+  const st = motionState[i];
+  const genBtn = $("motionGen" + i);
+  if (genBtn) genBtn.onclick = () => generateMotion(i, it);
+  const inc = $("motionInc" + i);
+  if (inc) inc.onchange = () => { st.included = inc.checked; };
+  const pos = $("motionPos" + i);
+  if (pos) pos.onchange = () => { st.position = pos.value; };
+}
+
+async function generateMotion(i, it) {
+  const st = motionState[i];
+  st.generating = true;
+  const row = document.getElementById(`motionRow${i}`);
+  row.innerHTML = motionRowHtml(i, it, st);
+  wireMotionRow(i, it);
+  try {
+    const d = await (await fetch("/api/motion/render", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ index: i, position: st.position }),
+    })).json();
+    st.generating = false;
+    if (d.ok) { st.path = d.path; st.included = true; st.ts = Date.now(); }
+    else { setStatus("Erro ao gerar motion design: " + (d.error || "falha")); }
+  } catch (e) {
+    st.generating = false;
+    setStatus("Erro ao gerar motion design.");
+  }
+  row.innerHTML = motionRowHtml(i, it, st);
+  wireMotionRow(i, it);
+}
+
+function renderMotionDesign() {
+  const card = $("motionCard");
+  const list = $("motionList");
+  const items = analysis && analysis.motion_design;
+  if (!items || !items.length) { card.classList.add("hidden"); list.innerHTML = ""; return; }
+  card.classList.remove("hidden");
+  list.innerHTML = "";
+  items.forEach((it, i) => {
+    const st = motionState[i] || (motionState[i] = { generating: false, path: null, included: true, ts: 0, position: "bottom" });
+    const row = document.createElement("div");
+    row.className = "flex flex-col gap-1.5 border-t border-bg pt-2 first:border-t-0 first:pt-0";
+    row.id = `motionRow${i}`;
+    row.innerHTML = motionRowHtml(i, it, st);
+    list.appendChild(row);
+    wireMotionRow(i, it);
+  });
 }
 
 function setTransStatus(msg, ok = false) {

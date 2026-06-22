@@ -41,13 +41,32 @@ rodar no início de toda sessão neste projeto.
       "suggestion": "texto completo corrigido do segmento (opcional)",
       "cut": true
     }
+  ],
+  "chapters": [
+    {"title": "Título curto do capítulo", "start_s": 10.5}
+  ],
+  "motion_design": [
+    {"frase": "Frase/palavra de impacto para animar", "start_s": 4.4, "end_s": 9.0}
+  ],
+  "edit_suggestions": [
+    {"start_s": 114.4, "end_s": 135.1, "tipo": "ritmo", "sugestao": "..."}
   ]
 }
 ```
+- `segments` é por trecho da transcrição (correções de transcrição/português/coerência).
 - `cut: true` marca trechos repetidos/falsos começos (a pessoa começou a falar,
   errou, e refez a frase do zero) — vira sugestão de corte no painel.
-- `suggestion` só faz sentido para correções pontuais que cabem ler ler num só
+- `suggestion` só faz sentido para correções pontuais que cabem ler num só
   segmento (ex.: nome de empresa transcrito errado). Não usar em segmentos `cut`.
+- `chapters` (opcional): divide o vídeo por tema. `start_s` é o tempo no vídeo
+  ORIGINAL; o servidor mapeia para a timeline já cortada. Vira marcador no XML do
+  Premiere (`chapters_on`) e lista copiável estilo YouTube no card "Capítulos".
+- `motion_design` (opcional): frases/palavras de impacto. O usuário escolhe quais
+  gerar (opt-in, botão "Gerar"); cada uma vira um clipe `.mov` ProRes 4444 com
+  fundo transparente (output/motion/<i>.mov) para arrastar/entrar como 2ª trilha
+  no XML. `start_s`/`end_s` definem a duração do clipe. Frase curta (cabe centralizada).
+- `edit_suggestions` (opcional): notas de ritmo/estrutura (diferente das correções
+  de português dos `segments`). Aparecem no card "Sugestões de edição", sem ação automática.
 
 ## Outras notas do projeto
 Snapshot completo (decisões, arquivos-chave, pendências) fica no vault:
