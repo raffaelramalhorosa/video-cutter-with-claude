@@ -7,29 +7,19 @@ import {
   useVideoConfig,
 } from "remotion";
 
-// Props que o servidor passa via --props (JSON). As dimensoes/fps/duracao
-// reais vem daqui e viram a metadata da composicao (calcMotionMetadata).
 export type MotionTextProps = {
   text: string;
   durationInSeconds: number;
   fps: number;
   width: number;
   height: number;
-  // Posicao vertical do bloco de texto
   position: "bottom" | "center" | "top";
-  // Estilo de animacao de entrada
   animationStyle: "spring" | "typewriter" | "highlight" | "lateral" | "punch";
-  // Direcao de entrada (para spring e lateral)
   entryDirection: "bottom" | "top" | "left" | "right";
-  // Palavra que recebe cor de destaque (case-insensitive, vazio = nenhuma)
   accentWord: string;
-  // Cor do destaque
   accentColor: "amber" | "white" | "red";
-  // Caixa semi-transparente atras de cada palavra
   showBgBox: boolean;
-  // Texto em maiusculas
   capsMode: boolean;
-  // Multiplicador do delay entre palavras (1 = padrao, 2 = mais lento, 0.5 = mais rapido)
   staggerSpeed: number;
 };
 
@@ -49,236 +39,188 @@ export const defaultMotionProps: MotionTextProps = {
   staggerSpeed: 1,
 };
 
-// Define duracao/dimensoes/fps reais da composicao a partir das props.
 export const calcMotionMetadata = ({
   props,
 }: {
   props: MotionTextProps;
-}) => {
-  return {
-    durationInFrames: Math.max(1, Math.round(props.durationInSeconds * props.fps)),
-    fps: props.fps,
-    width: props.width,
-    height: props.height,
-  };
-};
+}) => ({
+  durationInFrames: Math.max(1, Math.round(props.durationInSeconds * props.fps)),
+  fps: props.fps,
+  width: props.width,
+  height: props.height,
+});
 
-// Posicao vertical do BLOCO de texto via alignContent (eixo cruzado do flex-wrap).
 const layoutByPosition: Record<MotionTextProps["position"], React.CSSProperties> = {
   top:    { alignContent: "flex-start", padding: "12% 8% 0" },
   center: { alignContent: "center",     padding: "0 8%" },
   bottom: { alignContent: "flex-end",   padding: "0 8% 12%" },
 };
 
-// Cores de destaque por token
 const ACCENT_COLORS: Record<MotionTextProps["accentColor"], string> = {
   amber: "#C98A2E",
   white: "#FFFFFF",
   red:   "#E05050",
 };
 
-// --------------------------------------------------------------------------
-// Calculos de animacao por estilo
-// --------------------------------------------------------------------------
-
-type WordStyle = {
-  transform: string;
-  opacity: number;
-  color?: string;
-  background?: string;
-  borderRadius?: string;
-  padding?: string;
-  WebkitTextStroke?: string;
-  paintOrder?: string;
-};
-
-function useWordAnimation(
-  word: string,
-  i: number,
-  frame: number,
-  fps: number,
-  width: number,
-  height: number,
-  props: MotionTextProps,
-  fontSize: number,
-  totalWords: number,
-): WordStyle {
-  const {
-    animationStyle,
-    entryDirection,
-    accentWord,
-    accentColor,
-    showBgBox,
-    capsMode,
-    staggerSpeed,
-  } = props;
-
-  const baseDelay = i * 2 * staggerSpeed;
-  const isAccent =
-    accentWord.trim() !== "" &&
-    word.toLowerCase() === accentWord.trim().toLowerCase();
-
-  const strokeW = Math.max(2, Math.round(fontSize * 0.09));
-
-  // Cor da palavra
-  const color = isAccent ? ACCENT_COLORS[accentColor] : "white";
-
-  // Caixa de fundo por palavra
-  const bgBox: React.CSSProperties = showBgBox
-    ? {
-        background: "rgba(0,0,0,0.45)",
-        borderRadius: `${Math.round(fontSize * 0.18)}px`,
-        padding: `${Math.round(fontSize * 0.06)}px ${Math.round(fontSize * 0.18)}px`,
-      }
-    : {};
-
-  // Estilo do contorno (sem contorno quando ha caixa de fundo -- fica estranho)
-  const strokeStyle: React.CSSProperties = showBgBox
-    ? {}
-    : {
-        WebkitTextStroke: `${strokeW}px black`,
-        paintOrder: "stroke fill",
-      };
-
-  // --- spring (entrada de baixo/cima/esquerda/direita) ---
-  if (animationStyle === "spring" || animationStyle === "lateral") {
-    const enter = spring({
-      frame: frame - baseDelay,
-      fps,
-      config: { damping: 12, mass: 0.6, stiffness: 120 },
-    });
-
-    let tx = 0;
-    let ty = 0;
-    const dist = animationStyle === "lateral"
-      ? width * 0.12  // slide lateral menor para nao cortar o frame
-      : height * 0.035;
-
-    if (animationStyle === "lateral") {
-      tx = entryDirection === "left"
-        ? interpolate(enter, [0, 1], [-dist, 0])
-        : entryDirection === "right"
-        ? interpolate(enter, [0, 1], [dist, 0])
-        : 0;
-      ty = entryDirection === "top"
-        ? interpolate(enter, [0, 1], [-dist, 0])
-        : entryDirection === "bottom"
-        ? interpolate(enter, [0, 1], [dist, 0])
-        : 0;
-    } else {
-      // spring padrao: entra sempre na direcao escolhida
-      const raw = interpolate(enter, [0, 1], [dist, 0]);
-      ty = entryDirection === "bottom" ? raw
-        : entryDirection === "top"    ? -raw
-        : 0;
-      tx = entryDirection === "left"  ? -raw * 3
-        : entryDirection === "right"  ? raw * 3
-        : 0;
-    }
-
-    const scale   = interpolate(enter, [0, 1], [0.7, 1]);
-    const opacity = interpolate(enter, [0, 1], [0, 1], { extrapolateRight: "clamp" });
-
-    return {
-      transform: `translate(${tx}px, ${ty}px) scale(${scale})`,
-      opacity,
-      color,
-      ...bgBox,
-      ...strokeStyle,
-    };
-  }
-
-  // --- typewriter: cada palavra aparece de uma vez (sem slide) ---
-  if (animationStyle === "typewriter") {
-    // Cada palavra aparece em 1 frame exato no seu delay
-    const visible = frame >= baseDelay ? 1 : 0;
-    // Pequeno pop de escala ao aparecer
-    const popFrame = frame - baseDelay;
-    const pop = spring({ frame: popFrame, fps, config: { damping: 18, stiffness: 200, mass: 0.4 } });
-    const scale = interpolate(pop, [0, 1], [1.15, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-    return {
-      transform: `scale(${scale})`,
-      opacity: visible,
-      color,
-      ...bgBox,
-      ...strokeStyle,
-    };
-  }
-
-  // --- highlight: palavras ja visiveis, caixa de fundo varre da esquerda p/ direita ---
-  if (animationStyle === "highlight") {
-    // Todas as palavras aparecem com fade inicial curto
-    const fadeIn = spring({ frame, fps, config: { damping: 20, stiffness: 80, mass: 1 } });
-    const opacity = interpolate(fadeIn, [0, 1], [0, 0.35], { extrapolateRight: "clamp" });
-
-    // Destaque progressivo: fundo ambar aparece na vez de cada palavra
-    const highlightDelay = baseDelay;
-    const highlightEnter = spring({
-      frame: frame - highlightDelay,
-      fps,
-      config: { damping: 18, stiffness: 160, mass: 0.5 },
-    });
-    const highlightOpacity = interpolate(highlightEnter, [0, 1], [0, 1], {
-      extrapolateRight: "clamp",
-    });
-    const highlightColor = ACCENT_COLORS[accentColor];
-
-    // Palavra ativa = totalmente visivel; as outras ficam semi-transparentes ate serem ativadas
-    const wordVisible = frame >= highlightDelay ? 1 : opacity;
-
-    return {
-      transform: "scale(1)",
-      opacity: wordVisible,
-      color: highlightOpacity > 0.5 ? color : "white",
-      background: `rgba(${hexToRgb(highlightColor)}, ${highlightOpacity * (showBgBox ? 0.7 : 0.3)})`,
-      borderRadius: `${Math.round(fontSize * 0.18)}px`,
-      padding: `${Math.round(fontSize * 0.06)}px ${Math.round(fontSize * 0.18)}px`,
-      ...strokeStyle,
-    };
-  }
-
-  // --- punch: palavra entra grande e encolhe ao tamanho final (impacto) ---
-  if (animationStyle === "punch") {
-    const enter = spring({
-      frame: frame - baseDelay,
-      fps,
-      config: { damping: 8, mass: 0.8, stiffness: 200 },
-    });
-    const scale   = interpolate(enter, [0, 1], [2.2, 1], { extrapolateRight: "clamp" });
-    const opacity = interpolate(enter, [0, 1], [0, 1],   { extrapolateRight: "clamp" });
-    return {
-      transform: `scale(${scale})`,
-      opacity,
-      color,
-      ...bgBox,
-      ...strokeStyle,
-    };
-  }
-
-  // fallback (nao deve chegar aqui)
-  return { transform: "scale(1)", opacity: 1, color, ...bgBox, ...strokeStyle };
-}
-
-// Converte hex (#C98A2E) para "r,g,b" para usar no rgba()
 function hexToRgb(hex: string): string {
   const n = parseInt(hex.replace("#", ""), 16);
   return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
 }
 
 // --------------------------------------------------------------------------
+// SPRING — slide na direção escolhida + bounce + fade
+// Assinatura: física suave, palavras deslizam de uma direção
+// --------------------------------------------------------------------------
+function animSpring(
+  frame: number, fps: number, i: number,
+  width: number, height: number,
+  entryDirection: MotionTextProps["entryDirection"],
+  staggerSpeed: number,
+): { transform: string; opacity: number } {
+  const delay = i * 3 * staggerSpeed;
+  const enter = spring({ frame: frame - delay, fps,
+    config: { damping: 14, mass: 0.7, stiffness: 130 } });
+
+  const dist = height * 0.06;   // 6% da altura — slide perceptível mas não exagerado
+  let tx = 0, ty = 0;
+  if (entryDirection === "bottom") ty = interpolate(enter, [0, 1], [dist, 0]);
+  else if (entryDirection === "top") ty = interpolate(enter, [0, 1], [-dist, 0]);
+  else if (entryDirection === "left") tx = interpolate(enter, [0, 1], [-dist * 1.5, 0]);
+  else if (entryDirection === "right") tx = interpolate(enter, [0, 1], [dist * 1.5, 0]);
+
+  const scale   = interpolate(enter, [0, 1], [0.65, 1]);
+  const opacity = interpolate(enter, [0, 1], [0, 1], { extrapolateRight: "clamp" });
+  return { transform: `translate(${tx}px,${ty}px) scale(${scale})`, opacity };
+}
+
+// --------------------------------------------------------------------------
+// TYPEWRITER — palavras aparecem instantaneamente, uma de cada vez
+// Assinatura: pop brusco de escala (1.5→1), sem slide, efeito mecânico
+// --------------------------------------------------------------------------
+function animTypewriter(
+  frame: number, fps: number, i: number,
+  staggerSpeed: number,
+): { transform: string; opacity: number } {
+  const delay = i * 4 * staggerSpeed;
+  const visible = frame >= delay ? 1 : 0;
+  // Pop de escala pronunciado ao aparecer: 1.5× → 1.0×
+  const pop = spring({ frame: frame - delay, fps,
+    config: { damping: 10, stiffness: 280, mass: 0.3 } });
+  const scale = interpolate(pop, [0, 1], [1.5, 1],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  return { transform: `scale(${scale})`, opacity: visible };
+}
+
+// --------------------------------------------------------------------------
+// HIGHLIGHT — todas as palavras aparecem juntas (fade-in rápido),
+// depois um brilho colorido varre palavra por palavra
+// Assinatura: texto nasce apagado, cada palavra "acende" na sua vez
+// --------------------------------------------------------------------------
+function animHighlight(
+  frame: number, fps: number, i: number,
+  accentColor: MotionTextProps["accentColor"],
+  staggerSpeed: number,
+): { transform: string; opacity: number; extra: React.CSSProperties } {
+  // Fade-in global rápido — todas as palavras chegam a 60% de opacidade
+  const fadeIn = spring({ frame, fps, config: { damping: 18, stiffness: 100, mass: 0.8 } });
+  const baseOpacity = interpolate(fadeIn, [0, 1], [0, 0.6], { extrapolateRight: "clamp" });
+
+  // "Acensão" da palavra: vai de 60% para 100% e ganha cor de fundo
+  const lightDelay = i * 4 * staggerSpeed;
+  const light = spring({ frame: frame - lightDelay, fps,
+    config: { damping: 16, stiffness: 180, mass: 0.5 } });
+  const lightOpacity = interpolate(light, [0, 1], [0, 1], { extrapolateRight: "clamp" });
+
+  const color = ACCENT_COLORS[accentColor];
+  const opacity = frame < lightDelay ? baseOpacity : 1;
+
+  return {
+    transform: "scale(1)",
+    opacity,
+    extra: {
+      // Caixa colorida com opacidade proporcional ao progresso da "acensão"
+      background: lightOpacity > 0.01
+        ? `rgba(${hexToRgb(color)}, ${lightOpacity * 0.55})`
+        : "transparent",
+      borderRadius: "6px",
+      padding: "2px 8px",
+      // A palavra fica na cor de destaque enquanto está sendo "acesa"
+      color: lightOpacity > 0.5 ? (accentColor === "white" ? "#000" : "#fff") : "white",
+      transition: "color 0.1s",
+    },
+  };
+}
+
+// --------------------------------------------------------------------------
+// LATERAL — slide horizontal puro, sem escala
+// Assinatura: palavras entram voando da lateral, overshoot pronunciado
+// --------------------------------------------------------------------------
+function animLateral(
+  frame: number, fps: number, i: number,
+  width: number,
+  entryDirection: MotionTextProps["entryDirection"],
+  staggerSpeed: number,
+): { transform: string; opacity: number } {
+  const delay = i * 2 * staggerSpeed;
+  // Spring com overshoot (underdamped) para "voar" da lateral
+  const enter = spring({ frame: frame - delay, fps,
+    config: { damping: 9, mass: 0.5, stiffness: 160 } });
+
+  const dist = width * 0.55;   // vem de fora do frame
+  let tx = 0, ty = 0;
+
+  // Por padrão (bottom/top), força entrada da esquerda para deixar claro o efeito lateral
+  if (entryDirection === "right") {
+    tx = interpolate(enter, [0, 1], [dist, 0], { extrapolateRight: "clamp" });
+  } else if (entryDirection === "top") {
+    ty = interpolate(enter, [0, 1], [-dist * 0.5, 0], { extrapolateRight: "clamp" });
+  } else if (entryDirection === "bottom") {
+    ty = interpolate(enter, [0, 1], [dist * 0.5, 0], { extrapolateRight: "clamp" });
+  } else {
+    // left (padrão)
+    tx = interpolate(enter, [0, 1], [-dist, 0], { extrapolateRight: "clamp" });
+  }
+
+  const opacity = interpolate(enter, [0, 1], [0, 1], { extrapolateRight: "clamp" });
+  return { transform: `translate(${tx}px,${ty}px)`, opacity };
+}
+
+// --------------------------------------------------------------------------
+// PUNCH — cada palavra entra GRANDE (3.5×) e encolhe com bounce
+// Assinatura: impacto visual forte, cada palavra "bate" no tamanho final
+// --------------------------------------------------------------------------
+function animPunch(
+  frame: number, fps: number, i: number,
+  staggerSpeed: number,
+): { transform: string; opacity: number } {
+  const delay = i * 5 * staggerSpeed;   // stagger maior — cada palavra bem separada
+  // Underdamped: overshoot abaixo de 1.0 antes de assentar (efeito de "bounce")
+  const enter = spring({ frame: frame - delay, fps,
+    config: { damping: 6, mass: 1.0, stiffness: 260 } });
+
+  const scale   = interpolate(enter, [0, 1], [3.5, 1], { extrapolateRight: "clamp" });
+  const opacity = interpolate(enter, [0, 1], [0, 1],   { extrapolateRight: "clamp" });
+  return { transform: `scale(${scale})`, opacity };
+}
+
+// --------------------------------------------------------------------------
 // Componente principal
 // --------------------------------------------------------------------------
-
 export const MotionText: React.FC<MotionTextProps> = (props) => {
-  const { text, position, capsMode } = props;
+  const {
+    text, position, capsMode,
+    animationStyle, entryDirection, accentWord, accentColor, showBgBox, staggerSpeed,
+  } = props;
+
   const frame = useCurrentFrame();
   const { fps, width, height, durationInFrames } = useVideoConfig();
 
   const displayText = capsMode ? text.toUpperCase() : text;
   const words = displayText.split(/\s+/).filter(Boolean);
   const fontSize = Math.round(width * 0.058);
+  const strokeW  = Math.max(2, Math.round(fontSize * 0.09));
 
-  // Fade-out global nos ultimos ~0.3s
+  // Fade-out global nos últimos 0.3s
   const fadeOutFrames = Math.round(fps * 0.3);
   const globalOpacity = interpolate(
     frame,
@@ -301,26 +243,73 @@ export const MotionText: React.FC<MotionTextProps> = (props) => {
       }}
     >
       {words.map((word, i) => {
-        const ws = useWordAnimation(word, i, frame, fps, width, height, props, fontSize, words.length);
+        const isAccent =
+          accentWord.trim() !== "" &&
+          word.toLowerCase() === accentWord.trim().toLowerCase();
+
+        const baseColor = isAccent ? ACCENT_COLORS[accentColor] : "white";
+
+        // Caixa de fundo opcional (showBgBox sobrepõe o estilo do highlight)
+        const bgBoxStyle: React.CSSProperties = showBgBox
+          ? { background: "rgba(0,0,0,0.45)", borderRadius: `${Math.round(fontSize * 0.18)}px`,
+              padding: `${Math.round(fontSize * 0.06)}px ${Math.round(fontSize * 0.18)}px` }
+          : {};
+
+        // Contorno — desligado quando há caixa de fundo ou highlight
+        const hasStroke = !showBgBox && animationStyle !== "highlight";
+        const strokeStyle: React.CSSProperties = hasStroke
+          ? { WebkitTextStroke: `${strokeW}px black`, paintOrder: "stroke fill" }
+          : {};
+
+        // ---- Calcula anim por estilo ----
+        let transform = "scale(1)";
+        let opacity   = 1;
+        let extraStyle: React.CSSProperties = {};
+
+        if (animationStyle === "spring") {
+          const a = animSpring(frame, fps, i, width, height, entryDirection, staggerSpeed);
+          transform = a.transform; opacity = a.opacity;
+        } else if (animationStyle === "typewriter") {
+          const a = animTypewriter(frame, fps, i, staggerSpeed);
+          transform = a.transform; opacity = a.opacity;
+        } else if (animationStyle === "highlight") {
+          const a = animHighlight(frame, fps, i, accentColor, staggerSpeed);
+          transform = a.transform; opacity = a.opacity; extraStyle = a.extra;
+        } else if (animationStyle === "lateral") {
+          const a = animLateral(frame, fps, i, width, entryDirection, staggerSpeed);
+          transform = a.transform; opacity = a.opacity;
+        } else if (animationStyle === "punch") {
+          const a = animPunch(frame, fps, i, staggerSpeed);
+          transform = a.transform; opacity = a.opacity;
+        }
+
+        // highlight define sua própria cor; os outros usam baseColor
+        const wordColor = animationStyle === "highlight" && extraStyle.color
+          ? extraStyle.color
+          : baseColor;
+
         return (
           <span
             key={i}
             style={{
               display: "inline-block",
-              transform: ws.transform,
-              opacity: ws.opacity,
+              transform,
+              opacity,
               fontFamily: "'Segoe UI Black', 'Arial Black', 'Segoe UI', sans-serif",
               fontWeight: 900,
               fontSize,
               lineHeight: 1.05,
-              color: ws.color ?? "white",
-              ...(ws.WebkitTextStroke ? { WebkitTextStroke: ws.WebkitTextStroke } : {}),
-              ...(ws.paintOrder      ? { paintOrder: ws.paintOrder }             : {}),
+              color: wordColor as string,
               textShadow: `0 ${Math.round(fontSize * 0.05)}px ${Math.round(fontSize * 0.06)}px rgba(0,0,0,0.45)`,
               whiteSpace: "pre",
-              background:    ws.background    ?? undefined,
-              borderRadius:  ws.borderRadius  ?? undefined,
-              padding:       ws.padding       ?? undefined,
+              ...strokeStyle,
+              ...bgBoxStyle,
+              // extraStyle do highlight (background, borderRadius, padding) sobrepõe bgBoxStyle
+              ...(animationStyle === "highlight" ? {
+                background:   extraStyle.background,
+                borderRadius: extraStyle.borderRadius,
+                padding:      extraStyle.padding,
+              } : {}),
             }}
           >
             {word}

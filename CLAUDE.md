@@ -8,11 +8,15 @@ a trabalhar neste projeto nesta sessão, faça isto SEM perguntar:
 2. Se ele NÃO estiver rodando, suba de novo com a tool `Monitor`:
    - description: "Detecta nova transcrição em output/transcricao.srt"
    - persistent: true
-   - command (Bash, Git Bash/POSIX) — IMPORTANTE: inicializar `last` com o mtime
-     atual do arquivo ANTES do loop, senão dispara um falso positivo na primeira
-     volta com a transcrição que já existia:
+   - command (Bash, Git Bash/POSIX) — DOIS pontos importantes:
+     a) inicializar `last` com o mtime atual do arquivo ANTES do loop, senão
+        dispara um falso positivo na primeira volta com a transcrição que já existia;
+     b) DEBOUNCE: a transcrição é escrita incrementalmente (o mtime muda várias
+        vezes durante a gravação). Sem debounce, o monitor dispara dezenas de vezes
+        e inunda o chat. Por isso, ao detectar mudança, espere 3s e só emita o
+        evento se o mtime tiver ficado ESTÁVEL (escrita terminou):
      ```
-     cd "C:/Users/user/Documents/Ambiente/Ferramentas/claude-to-premier" && last=$(stat -c %Y output/transcricao.srt 2>/dev/null || echo ""); while true; do sleep 4; if [ -f output/transcricao.srt ]; then cur=$(stat -c %Y output/transcricao.srt 2>/dev/null); if [ -n "$cur" ] && [ "$cur" != "$last" ]; then echo "NOVA_TRANSCRICAO mtime=$cur arquivo=output/transcricao.srt"; last="$cur"; fi; fi; done
+     cd "C:/Users/user/Documents/Ambiente/Ferramentas/claude-to-premier" && last=$(stat -c %Y output/transcricao.srt 2>/dev/null || echo ""); while true; do sleep 4; if [ -f output/transcricao.srt ]; then cur=$(stat -c %Y output/transcricao.srt 2>/dev/null); if [ -n "$cur" ] && [ "$cur" != "$last" ]; then sleep 3; chk=$(stat -c %Y output/transcricao.srt 2>/dev/null); if [ "$chk" = "$cur" ]; then echo "NOVA_TRANSCRICAO mtime=$cur arquivo=output/transcricao.srt"; last="$cur"; fi; fi; fi; done
      ```
 3. Quando o monitor emitir um evento, leia `output/transcricao.srt`, escreva a
    análise em `output/analise.json` (schema abaixo) e avise o usuário no chat

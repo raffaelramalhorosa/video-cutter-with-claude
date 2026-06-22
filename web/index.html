@@ -42,6 +42,7 @@
         <video id="player" controls preload="metadata" src="/media" class="w-full max-h-[360px] bg-black rounded-md block"></video>
         <div class="timeline relative h-11 mt-[14px] bg-cut rounded-md overflow-hidden cursor-pointer" id="timeline">
           <div class="absolute top-0 bottom-0 w-0.5 bg-text-primary pointer-events-none" id="playhead" style="left:0"></div>
+          <div class="absolute top-0 bottom-0 pointer-events-none opacity-0 transition-opacity duration-150 rounded-sm" id="segHL" style="left:0;width:0;background:rgba(255,255,255,0.18);box-shadow:0 0 12px 3px var(--color-text-primary), inset 0 0 0 2px var(--color-text-primary)"></div>
           <div class="tl-loading hidden absolute inset-0 items-center justify-center gap-2.5 bg-bg/55 text-text-primary text-[13px]" id="tlLoading">
             <span class="w-4 h-4 rounded-full border-2 border-text-muted/30 border-t-text-primary animate-spin"></span>Analisando áudio…
           </div>
@@ -168,6 +169,19 @@
   </div><!-- col direita -->
 
   </div><!-- layout -->
+</div>
+
+<!-- ===== MODAL: o que exportar junto com o XML ===== -->
+<div id="exportModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+  <div class="bg-bg-secondary rounded-lg p-5 w-full max-w-[440px] shadow-2xl border border-text-muted/10">
+    <h2 class="text-base font-medium m-0 mb-1">Exportar para o Premiere</h2>
+    <p class="text-text-secondary text-xs mb-4">O XML de cortes sempre será gerado. Selecione o que mais deseja exportar junto:</p>
+    <div id="exportOptions" class="flex flex-col gap-2 mb-5"></div>
+    <div class="flex justify-end gap-2">
+      <button id="exportCancel" class="bg-bg text-text-primary rounded-sm px-3.5 py-2 text-[13px] hover:bg-bg/60 transition-colors">Cancelar</button>
+      <button id="exportConfirm" class="bg-accent text-on-accent rounded-sm px-3.5 py-2 text-[13px] font-medium hover:bg-accent-hover transition-colors">Exportar</button>
+    </div>
+  </div>
 </div>
 
 <style>
@@ -340,26 +354,102 @@ function loop() {
   requestAnimationFrame(loop);
 }
 
-// --- exportar XML ---
-$("btnExport").addEventListener("click", async () => {
+// --- destaque do trecho na timeline ao passar o mouse na transcrição ---
+function highlightSegment(start, end) {
+  if (!DUR) return;
+  const hl = $("segHL");
+  hl.style.left = (start / DUR * 100) + "%";
+  hl.style.width = Math.max(0.4, (end - start) / DUR * 100) + "%"; // largura mínima visível
+  hl.style.opacity = "1";
+}
+
+function hideSegmentHighlight() {
+  $("segHL").style.opacity = "0";
+}
+
+// --- exportar XML (abre modal perguntando o que exportar junto) ---
+$("btnExport").addEventListener("click", openExportModal);
+
+// Linha de opção (checkbox + título + descrição) do modal
+function exportOptRow(id, title, desc) {
+  return `<label class="flex items-start gap-3 cursor-pointer bg-bg rounded-md p-3 hover:bg-bg/60 transition-colors">` +
+    `<input type="checkbox" id="${id}" class="accent-accent mt-0.5" checked>` +
+    `<span class="min-w-0"><span class="block text-[13px] text-text-primary">${title}</span>` +
+    `<span class="block text-text-muted text-xs">${desc}</span></span></label>`;
+}
+
+function closeExportModal() { $("exportModal").classList.add("hidden"); }
+
+function openExportModal() {
+  // Detecta com o que o usuário interagiu
+  const hasSrt = transSegs.length > 0;
+  const genMotion = Object.keys(motionState).filter((i) => motionState[i].path && motionState[i].included);
+  const hasMotion = genMotion.length > 0;
+  const hasChapters = !!(analysis && analysis.chapters && analysis.chapters.length);
+
+  // Sem nenhum extra disponível: exporta direto, sem modal
+  if (!hasSrt && !hasMotion && !hasChapters) {
+    doExport({ includeSrt: false, includeMotion: false, includeChapters: false });
+    return;
+  }
+
+  let html = "";
+  if (hasSrt)      html += exportOptRow("optSrt",      "Legendas (.srt)",  `${transSegs.length} segmento(s) de transcrição`);
+  if (hasMotion)   html += exportOptRow("optMotion",   "Motion design",    `${genMotion.length} clipe(s) gerado(s) na 2ª trilha`);
+  if (hasChapters) html += exportOptRow("optChapters", "Capítulos",        `${analysis.chapters.length} marcador(es) na timeline`);
+  $("exportOptions").innerHTML = html;
+  $("exportModal").classList.remove("hidden");
+}
+
+// Fechar modal: cancelar, clicar fora, ou ESC
+$("exportCancel").addEventListener("click", closeExportModal);
+$("exportModal").addEventListener("click", (e) => { if (e.target === $("exportModal")) closeExportModal(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("exportModal").classList.contains("hidden")) closeExportModal(); });
+
+$("exportConfirm").addEventListener("click", () => {
+  const includeSrt      = !!($("optSrt") && $("optSrt").checked);
+  const includeMotion   = !!($("optMotion") && $("optMotion").checked);
+  const includeChapters = !!($("optChapters") && $("optChapters").checked);
+  closeExportModal();
+  doExport({ includeSrt, includeMotion, includeChapters });
+});
+
+async function doExport(o) {
   setStatus("Exportando…");
-  const motionIndices = Object.keys(motionState)
-    .filter((i) => motionState[i].path && motionState[i].included)
-    .map(Number);
+  const motionIndices = o.includeMotion
+    ? Object.keys(motionState).filter((i) => motionState[i].path && motionState[i].included).map(Number)
+    : [];
   const body = {
     ...getParams(),
     seq_name: "Auto-Cut",
-    chapters_on: !!(analysis && analysis.chapters && analysis.chapters.length),
+    chapters_on: !!o.includeChapters,
     motion_indices: motionIndices,
   };
-  const res = await fetch("/api/export", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const d = await res.json();
-  if (d.ok) setStatus(`XML gerado (${d.cuts} cortes) → ${d.xml_path}`, true);
-  else setStatus("Erro: " + (d.error || "falha ao exportar"));
-});
+  let d;
+  try {
+    d = await (await fetch("/api/export", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })).json();
+  } catch (e) { setStatus("Erro ao exportar o XML."); return; }
+  if (!d.ok) { setStatus("Erro: " + (d.error || "falha ao exportar")); return; }
+
+  let msg = `XML gerado (${d.cuts} cortes)`;
+  if (motionIndices.length) msg += ` · ${motionIndices.length} motion`;
+
+  // Legendas: chama o endpoint separado de SRT
+  if (o.includeSrt && transSegs.length) {
+    try {
+      const sd = await (await fetch("/api/export_srt", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ segments: transSegs }),
+      })).json();
+      msg += sd.ok ? ` · legenda (${sd.count} seg)` : " · falha na legenda";
+    } catch (e) { msg += " · falha na legenda"; }
+  }
+
+  setStatus(`${msg} → ${d.xml_path}`, true);
+}
 
 $("btnPreview").addEventListener("click", async () => {
   setStatus("Renderizando preview.mp4…");
@@ -489,6 +579,10 @@ function renderTranscript(segs) {
   transSegs.forEach((s, i) => {
     const div = document.createElement("div");
     div.className = "seg flex flex-wrap gap-x-3 gap-y-1.5 py-2";
+
+    // Ao passar o mouse na linha, destaca o trecho correspondente na timeline do vídeo
+    div.addEventListener("mouseenter", () => highlightSegment(s.start, s.end));
+    div.addEventListener("mouseleave", hideSegmentHighlight);
 
     const t = document.createElement("span");
     t.className = "t text-text-muted text-xs tabular-nums whitespace-nowrap min-w-[116px] cursor-pointer hover:text-text-primary";
