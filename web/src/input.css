@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+/* Tokens do .claude/STYLE.md (extends instrumento-tecnico-ambar) */
+@theme {
+  --color-bg: #13151A;
+  --color-bg-secondary: #1B1D23;
+  --color-text-primary: #D7D9DD;
+  --color-text-secondary: #8A8E98;
+  --color-text-muted: #5B5F69;
+  --color-accent: #C98A2E;
+  --color-accent-hover: #B37A22;
+  --color-accent-soft: #D9A256;
+  --color-on-accent: #1A1306;
+  --color-keep: #3C7A4E;
+  --color-cut: #8C4040;
+  /* tom legível do --color-cut para texto sobre fundo escuro (gap do STYLE.md: faltava
+     um token de texto para o botão destrutivo, que usava um hex avulso) */
+  --color-danger-text: #E08A8A;
+
+  --font-sans: "Inter", -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+/* --- estado dirigido por JS via classList.toggle em elementos ancestrais ---
+   Tailwind não expressa "ancestral com classe X" sem reestruturar o JS;
+   mais seguro manter essas 3 regras como CSS simples do que tocar na lógica. */
+#timeline.loading .tl-loading { display: flex; }
+#timeline.loading .keep-block { opacity: .25; }
+.seg.has-issue .x { border-left: 2px solid var(--color-accent-soft); padding-left: 6px; }
+.seg.cut .x { text-decoration: line-through; opacity: .5; }
+.cut-btn.on { background-color: var(--color-cut); border-color: var(--color-cut); color: var(--color-text-primary); }

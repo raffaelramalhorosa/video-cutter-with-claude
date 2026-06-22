@@ -1,0 +1,18 @@
+# Modelo do Whisper (~1.6 GB) — baixar via /setup, nao versionar
+models/*.bin
+
+# Binarios da CLI do Tailwind (~100 MB cada) — baixar via /setup
+web/tools/*
+
+# CSS compilado pelo Tailwind — gerado a partir de web/src/input.css
+web/tailwind.css
+
+# Saidas geradas (timeline, preview, transcricao, analise)
+output/*
+
+# Cache do Python
+__pycache__/
+*.pyc
+
+# Config local da maquina (nao deve ir para o repo publico)
+.claude/settings.local.json

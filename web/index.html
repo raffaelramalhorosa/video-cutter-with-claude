@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painel de revisão de cortes</title>
+<link rel="stylesheet" href="tailwind.css">
+</head>
+<body class="bg-bg text-text-primary">
+<div class="max-w-[1320px] mx-auto px-5 pt-4 pb-10">
+  <header class="flex items-baseline justify-between gap-4 mb-4 flex-wrap">
+    <h1 class="text-lg font-medium m-0">Painel de revisão de cortes</h1>
+    <div class="flex items-center gap-3.5">
+      <div class="text-text-secondary text-xs tabular-nums" id="mediaMeta">carregando…</div>
+      <button id="btnOpen" class="bg-bg-secondary text-text-primary rounded-sm px-3.5 py-2 text-[13px] hover:bg-bg-secondary/70 transition-colors">Abrir vídeo</button>
+    </div>
+  </header>
+
+  <div class="grid grid-cols-1 min-[900px]:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-4 items-start">
+  <div class="min-w-0">
+
+  <div class="bg-bg-secondary rounded-md p-4 mb-4">
+    <video id="player" controls preload="metadata" src="/media" class="w-full max-h-[360px] bg-black rounded-md block"></video>
+    <div class="timeline relative h-11 mt-[14px] bg-cut rounded-md overflow-hidden cursor-pointer" id="timeline">
+      <div class="absolute top-0 bottom-0 w-0.5 bg-text-primary pointer-events-none" id="playhead" style="left:0"></div>
+      <div class="tl-loading hidden absolute inset-0 items-center justify-center gap-2.5 bg-bg/55 text-text-primary text-[13px]" id="tlLoading">
+        <span class="w-4 h-4 rounded-full border-2 border-text-muted/30 border-t-text-primary animate-spin"></span>Analisando áudio…
+      </div>
+    </div>
+    <div class="flex justify-between text-text-muted text-[11px] mt-1 tabular-nums">
+      <span>0:00</span><span id="tickMid"></span><span id="tickEnd"></span>
+    </div>
+  </div>
+
+  <div class="bg-bg-secondary rounded-md p-4 mb-4">
+    <div class="flex gap-6 flex-wrap">
+      <div><div class="text-text-secondary text-xs">Duração original</div><div class="text-[20px] font-medium tabular-nums" id="sDur">—</div></div>
+      <div><div class="text-text-secondary text-xs">Duração final</div><div class="text-[20px] font-medium tabular-nums text-keep" id="sKept">—</div></div>
+      <div><div class="text-text-secondary text-xs">Removido</div><div class="text-[20px] font-medium tabular-nums" id="sRem">—</div></div>
+      <div><div class="text-text-secondary text-xs">Cortes</div><div class="text-[20px] font-medium tabular-nums" id="sCuts">—</div></div>
+    </div>
+  </div>
+
+  <div class="bg-bg-secondary rounded-md p-4 mb-4">
+    <p class="text-text-secondary text-xs uppercase tracking-wide mb-2.5">Parâmetros <span id="calcStatus" class="normal-case tracking-normal text-text-secondary"></span></p>
+    <div class="grid grid-cols-1 min-[680px]:grid-cols-2 gap-x-6 gap-y-[18px]">
+      <div>
+        <label class="flex justify-between items-baseline mb-1.5"><span class="font-medium">Limiar de silêncio</span><span class="text-text-secondary tabular-nums"><span id="vThreshold"></span> dB</span></label>
+        <input type="range" id="threshold" min="-60" max="-10" step="1" class="w-full accent-accent">
+        <div class="text-text-secondary text-xs mt-1">Abaixo disso é silêncio. Mais negativo corta só o silêncio mais profundo.</div>
+      </div>
+      <div>
+        <label class="flex justify-between items-baseline mb-1.5"><span class="font-medium">Silêncio mínimo</span><span class="text-text-secondary tabular-nums"><span id="vMinSilence"></span> s</span></label>
+        <input type="range" id="min_silence" min="0.1" max="3" step="0.1" class="w-full accent-accent">
+        <div class="text-text-secondary text-xs mt-1">Quão longa a pausa precisa ser para virar corte. Evita cortar respiros.</div>
+      </div>
+      <div>
+        <label class="flex justify-between items-baseline mb-1.5"><span class="font-medium">Margem (alças)</span><span class="text-text-secondary tabular-nums"><span id="vMargin"></span> s</span></label>
+        <input type="range" id="margin" min="0" max="0.5" step="0.01" class="w-full accent-accent">
+        <div class="text-text-secondary text-xs mt-1">Folga preservada ao redor da fala. Evita cortar o início/fim das palavras.</div>
+      </div>
+      <div>
+        <label class="flex justify-between items-baseline mb-1.5"><span class="font-medium">Clipe mínimo</span><span class="text-text-secondary tabular-nums"><span id="vMinClip"></span> s</span></label>
+        <input type="range" id="min_clip" min="0" max="2" step="0.1" class="w-full accent-accent">
+        <div class="text-text-secondary text-xs mt-1">Descarta trechos mantidos curtos demais.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bg-bg-secondary rounded-md p-4 mb-4">
+    <div class="flex gap-2.5 flex-wrap items-center">
+      <button id="btnSkip" class="bg-bg-secondary text-text-primary rounded-sm px-3.5 py-2 text-[13px] hover:bg-bg-secondary/70 transition-colors disabled:opacity-50 disabled:cursor-default">▶ Reproduzir só os cortes</button>
+      <button id="btnPreview" class="bg-bg-secondary text-text-primary rounded-sm px-3.5 py-2 text-[13px] hover:bg-bg-secondary/70 transition-colors disabled:opacity-50 disabled:cursor-default">Gerar preview.mp4</button>
+      <button id="btnExport" class="bg-accent text-on-accent rounded-sm px-3.5 py-2 text-[13px] font-medium hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-default">Exportar para o Premiere (XML)</button>
+      <span class="text-text-secondary text-[13px] min-h-[18px]" id="status"></span>
+    </div>
+  </div>
+
+  <div class="bg-bg-secondary rounded-md p-4 mb-4">
+    <p class="text-text-secondary text-xs uppercase tracking-wide mb-2.5">Trechos mantidos</p>
+    <table class="w-full border-collapse tabular-nums">
+      <thead>
+        <tr class="text-text-secondary text-xs font-medium">
+          <th class="text-left py-1.5 px-2.5">#</th><th class="text-left py-1.5 px-2.5">Entra</th><th class="text-left py-1.5 px-2.5">Sai</th>
+          <th class="text-right py-1.5 px-2.5">Duração</th><th class="text-right py-1.5 px-2.5">Frames</th>
+        </tr>
+      </thead>
+      <tbody id="clipRows"></tbody>
+    </table>
+  </div>
+  </div><!-- col esquerda -->
+
+  <div class="static min-[900px]:sticky min-[900px]:top-5">
+  <div class="bg-bg-secondary rounded-md p-4 flex flex-col max-h-none min-[900px]:max-h-[calc(100vh-40px)]">
+    <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+      <p class="text-text-secondary text-xs uppercase tracking-wide m-0">Transcrição</p>
+      <div class="flex gap-2 items-center">
+        <select id="lang" class="text-text-primary bg-bg-secondary rounded-sm px-2.5 py-2 text-[13px] border border-text-muted/20">
+          <option value="pt" selected>Português</option>
+          <option value="en">Inglês</option>
+          <option value="auto">Detectar idioma</option>
+        </select>
+        <button id="btnTranscribe" class="bg-accent text-on-accent rounded-sm px-3.5 py-2 text-[13px] font-medium hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-default">Transcrever</button>
+      </div>
+    </div>
+    <div id="transcript" class="transcript flex-1 min-h-0 max-h-[60vh] min-[900px]:max-h-none overflow-y-auto"></div>
+    <div class="flex items-center justify-between gap-3 pt-2.5 mt-2 flex-wrap">
+      <span class="text-text-secondary text-xs break-all" id="transStatus"></span>
+      <span class="flex gap-2 flex-wrap">
+        <button id="btnAnalysis" class="bg-bg-secondary text-text-primary rounded-sm px-2.5 py-1.5 text-xs hover:bg-bg-secondary/70 transition-colors">Carregar análise da IA</button>
+        <button id="btnExportSrt" class="bg-bg-secondary text-text-primary rounded-sm px-2.5 py-1.5 text-xs hover:bg-bg-secondary/70 transition-colors">Exportar legenda (SRT)</button>
+      </span>
+    </div>
+  </div>
+  </div><!-- col direita -->
+  </div><!-- layout -->
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const player = $("player");
+const timeline = $("timeline");
+const playhead = $("playhead");
+
+let DUR = 0;            // duração total (s)
+let keeps = [];         // [{in, out, ...}]
+let skipMode = false;
+let VIDEO_DIR = "";     // pasta do vídeo atual (ponto de partida do navegador)
+let transSegs = [];     // segmentos da transcrição (editáveis pelo usuário)
+let analysis = null;    // análise de IA carregada (output/analise.json)
+let manualCuts = [];    // trechos removidos do vídeo (cortes sugeridos aplicados): [[ini,fim],...]
+
+const PARAMS = ["threshold", "min_silence", "margin", "min_clip"];
+
+// --- formatação de tempo mm:ss.s ---
+function fmt(s) {
+  const m = Math.floor(s / 60);
+  const r = (s - m * 60).toFixed(1).padStart(4, "0");
+  return `${m}:${r}`;
+}
+
+function getParams() {
+  return {
+    threshold: parseFloat($("threshold").value),
+    min_silence: parseFloat($("min_silence").value),
+    margin: parseFloat($("margin").value),
+    min_clip: parseFloat($("min_clip").value),
+    manual_cuts: manualCuts,
+  };
+}
+
+function refreshLabels() {
+  $("vThreshold").textContent = $("threshold").value;
+  $("vMinSilence").textContent = parseFloat($("min_silence").value).toFixed(1);
+  $("vMargin").textContent = parseFloat($("margin").value).toFixed(2);
+  $("vMinClip").textContent = parseFloat($("min_clip").value).toFixed(1);
+}
+
+// --- desenha os blocos verdes (trechos mantidos) na linha do tempo ---
+function renderTimeline() {
+  // remove blocos antigos, mantém o playhead
+  [...timeline.querySelectorAll(".keep-block")].forEach((e) => e.remove());
+  for (const k of keeps) {
+    const b = document.createElement("div");
+    b.className = "keep-block absolute top-0 bottom-0 bg-keep/30 border-l border-r border-keep/70 after:content-[''] after:absolute after:inset-x-0 after:top-0 after:h-[3px] after:bg-keep";
+    b.style.left = (k.in / DUR * 100) + "%";
+    b.style.width = ((k.out - k.in) / DUR * 100) + "%";
+    timeline.appendChild(b);
+  }
+}
+
+function renderTable() {
+  const rows = keeps.map((k, i) =>
+    `<tr><td class="py-1.5 px-2.5 border-t border-bg">${i + 1}</td><td class="py-1.5 px-2.5 border-t border-bg">${fmt(k.in)}</td><td class="py-1.5 px-2.5 border-t border-bg">${fmt(k.out)}</td>` +
+    `<td class="py-1.5 px-2.5 border-t border-bg text-right">${(k.out - k.in).toFixed(2)}s</td>` +
+    `<td class="py-1.5 px-2.5 border-t border-bg text-right">${k.in_frame}–${k.out_frame}</td></tr>`).join("");
+  $("clipRows").innerHTML = rows || `<tr><td colspan="5" class="py-1.5 px-2.5 text-text-secondary">Nenhum trecho. Afrouxe o limiar.</td></tr>`;
+}
+
+function renderStats(st) {
+  $("sDur").textContent = st.duration.toFixed(2) + "s";
+  $("sKept").textContent = st.kept.toFixed(2) + "s";
+  $("sRem").textContent = st.removed.toFixed(2) + "s";
+  $("sCuts").textContent = st.cuts;
+}
+
+// --- chama a API de detecção (debounce) ---
+let timer = null;
+function scheduleDetect() {
+  refreshLabels();
+  clearTimeout(timer);
+  $("calcStatus").textContent = "· calculando…";
+  timer = setTimeout(detect, 300);
+}
+
+function setLoading(on) {
+  $("timeline").classList.toggle("loading", on);
+}
+
+async function detect() {
+  // Mostra o spinner só se a análise demorar (evita piscar em recálculo instantâneo)
+  const showTimer = setTimeout(() => setLoading(true), 150);
+  try {
+    const res = await fetch("/api/detect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(getParams()),
+    });
+    const data = await res.json();
+    keeps = data.keeps;
+    renderTimeline();
+    renderTable();
+    renderStats(data.stats);
+  } finally {
+    clearTimeout(showTimer);
+    setLoading(false);
+    $("calcStatus").textContent = "";
+  }
+}
+
+// --- reprodução pulando os silêncios ---
+function currentKeep(t) {
+  return keeps.find((k) => t >= k.in && t < k.out);
+}
+player.addEventListener("timeupdate", () => {
+  if (!skipMode || keeps.length === 0) return;
+  const t = player.currentTime;
+  if (!currentKeep(t)) {
+    const next = keeps.find((k) => k.in > t);
+    if (next) {
+      player.currentTime = next.in;
+    } else {
+      player.pause();
+      setSkip(false);
+    }
+  }
+});
+
+function setSkip(on) {
+  skipMode = on;
+  $("btnSkip").textContent = on ? "⏸ Parar revisão" : "▶ Reproduzir só os cortes";
+}
+
+$("btnSkip").addEventListener("click", () => {
+  if (skipMode) { player.pause(); setSkip(false); return; }
+  if (keeps.length === 0) return;
+  setSkip(true);
+  const t = player.currentTime;
+  if (!currentKeep(t)) player.currentTime = keeps[0].in;
+  player.play();
+});
+
+// --- clicar na linha do tempo busca o ponto ---
+timeline.addEventListener("click", (e) => {
+  const rect = timeline.getBoundingClientRect();
+  player.currentTime = (e.clientX - rect.left) / rect.width * DUR;
+});
+
+// --- playhead sincronizado ---
+function loop() {
+  if (DUR > 0) playhead.style.left = (player.currentTime / DUR * 100) + "%";
+  requestAnimationFrame(loop);
+}
+
+// --- exportar ---
+$("btnExport").addEventListener("click", async () => {
+  setStatus("Exportando…");
+  const body = { ...getParams(), seq_name: "Auto-Cut" };
+  const res = await fetch("/api/export", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const d = await res.json();
+  if (d.ok) setStatus(`XML gerado (${d.cuts} cortes) → ${d.xml_path}`, true);
+  else setStatus("Erro: " + (d.error || "falha ao exportar"));
+});
+
+$("btnPreview").addEventListener("click", async () => {
+  setStatus("Renderizando preview.mp4…");
+  const res = await fetch("/api/preview", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(getParams()),
+  });
+  const d = await res.json();
+  if (d.ok) setStatus("Preview gerado → " + d.path, true);
+  else setStatus("Erro: " + (d.error || "falha"));
+});
+
+function setStatus(msg, ok = false) {
+  const el = $("status");
+  el.textContent = msg;
+  el.className = "text-[13px] min-h-[18px] " + (ok ? "text-keep" : "text-text-secondary");
+}
+
+// --- aplica os metadados de um vídeo (no load inicial e ao trocar) ---
+function applyMedia(video, media, videoDir) {
+  DUR = media.duration;
+  VIDEO_DIR = videoDir || "";
+  $("mediaMeta").textContent =
+    `${video} · ${media.duration.toFixed(1)}s · ${media.fps} fps · ` +
+    `${media.width}×${media.height} · ${media.channels} canal(is)`;
+  $("tickMid").textContent = fmt(DUR / 2);
+  $("tickEnd").textContent = fmt(DUR);
+}
+
+// --- abrir vídeo pelo explorador nativo do Windows ---
+$("btnOpen").addEventListener("click", pickVideo);
+
+async function pickVideo() {
+  setStatus("Abrindo o explorador de arquivos…");
+  let d;
+  try {
+    d = await (await fetch("/api/pick", { method: "POST" })).json();
+  } catch (e) {
+    setStatus("Erro ao abrir o explorador de arquivos.");
+    return;
+  }
+  if (d.cancelled) { setStatus(""); return; }
+  if (!d.ok) { setStatus("Erro: " + (d.error || "falha ao carregar o vídeo")); return; }
+
+  stopAnalysisPoll();  // análise do vídeo anterior não vale mais
+  applyMedia(d.video, d.media, d.video_dir);
+  manualCuts = [];   // cortes da IA são por vídeo; zera ao trocar
+  keeps = [];
+  renderTimeline();  // limpa os blocos do vídeo anterior antes de reanalisar
+  player.src = "/media?ts=" + Date.now();  // cache-bust: força recarregar o novo vídeo
+  player.load();
+  setSkip(false);
+  await detect();
+  setStatus("Vídeo carregado: " + d.video, true);
+  transcribe();  // transcreve automaticamente o vídeo recém-carregado
+}
+
+// --- transcrição (Whisper via FFmpeg) ---
+$("btnTranscribe").addEventListener("click", transcribe);
+
+async function transcribe() {
+  const btn = $("btnTranscribe");
+  btn.disabled = true;
+  setTransStatus("");
+  analysis = null;  // a análise antiga não vale para a nova transcrição
+  $("transcript").innerHTML =
+    `<div class="flex items-center gap-2.5 text-text-secondary text-[13px] py-2">` +
+    `<span class="w-4 h-4 rounded-full border-2 border-text-muted/30 border-t-text-primary animate-spin"></span>` +
+    `Transcrevendo… pode levar alguns minutos em vídeos longos.</div>`;
+  try {
+    const d = await (await fetch("/api/transcribe", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ language: $("lang").value }),
+    })).json();
+    if (!d.ok) {
+      $("transcript").innerHTML = "";
+      setTransStatus("Erro: " + (d.error || "falha na transcrição"));
+      return;
+    }
+    renderTranscript(d.segments);
+    setTransStatus(`${d.count} segmentos · ${d.model} — edite os textos e clique em Exportar legenda`, true);
+    pollAnalysisAuto();  // busca a análise de IA sozinho, sem precisar clicar
+  } catch (e) {
+    $("transcript").innerHTML = "";
+    setTransStatus("Erro ao transcrever.");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// --- busca automática da análise de IA (sem precisar clicar no botão) ---
+let analysisPollTimer = null;
+
+function stopAnalysisPoll() {
+  if (analysisPollTimer) { clearInterval(analysisPollTimer); analysisPollTimer = null; }
+}
+
+function pollAnalysisAuto() {
+  stopAnalysisPoll();
+  let tries = 0;
+  analysisPollTimer = setInterval(async () => {
+    tries++;
+    if (tries > 150) { stopAnalysisPoll(); return; }  // ~10min, evita loop pra sempre
+    try {
+      const d = await (await fetch("/api/analysis")).json();
+      if (d.available) {
+        analysis = d;
+        applyAnalysisToDOM();
+        const n = (d.segments || []).reduce((a, s) => a + (s.issues ? s.issues.length : 0), 0);
+        setTransStatus(`Análise carregada automaticamente · ${n} apontamento(s).`, true);
+        stopAnalysisPoll();
+      }
+    } catch (e) { /* falha pontual de rede, tenta de novo na próxima */ }
+  }, 4000);
+}
+
+function renderTranscript(segs) {
+  // copia os segmentos para um estado editável local
+  transSegs = segs.map((s) => ({ start: s.start, end: s.end, text: s.text }));
+  const wrap = $("transcript");
+  wrap.innerHTML = "";
+  if (!transSegs.length) {
+    wrap.innerHTML = `<div class="text-text-secondary text-[13px] py-2">Nenhuma fala detectada.</div>`;
+    return;
+  }
+  transSegs.forEach((s, i) => {
+    const div = document.createElement("div");
+    div.className = "seg flex flex-wrap gap-x-3 gap-y-1.5 py-2";
+
+    const t = document.createElement("span");
+    t.className = "t text-text-muted text-xs tabular-nums whitespace-nowrap min-w-[116px] cursor-pointer hover:text-text-primary";
+    t.textContent = fmt(s.start) + " → " + fmt(s.end);
+    t.onclick = () => { player.currentTime = s.start; player.play(); };
+
+    const x = document.createElement("span");
+    x.className = "x text-text-primary flex-1 outline-none rounded-[4px] px-1 py-0.5 hover:bg-bg/40 focus:outline focus:outline-1 focus:outline-accent";
+    x.contentEditable = "true";   // texto editável antes de exportar
+    x.spellcheck = false;
+    x.textContent = s.text;
+    x.addEventListener("input", () => { transSegs[i].text = x.textContent; });
+
+    div.appendChild(t);
+    div.appendChild(x);
+    wrap.appendChild(div);
+  });
+}
+
+// --- exportar legenda (texto editado) ---
+$("btnExportSrt").addEventListener("click", async () => {
+  if (!transSegs.length) { setTransStatus("Nada para exportar. Transcreva primeiro."); return; }
+  setTransStatus("Exportando legenda…");
+  try {
+    const d = await (await fetch("/api/export_srt", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ segments: transSegs }),
+    })).json();
+    if (d.ok) setTransStatus(`Legenda exportada (${d.count} segmentos) → ${d.srt_path}`, true);
+    else setTransStatus("Erro: " + (d.error || "falha ao exportar"));
+  } catch (e) {
+    setTransStatus("Erro ao exportar a legenda.");
+  }
+});
+
+// --- análise de IA (gravada pelo Claude em output/analise.json) ---
+$("btnAnalysis").addEventListener("click", loadAnalysis);
+
+const escHtml = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+async function loadAnalysis() {
+  setTransStatus("Carregando análise…");
+  let d;
+  try {
+    d = await (await fetch("/api/analysis")).json();
+  } catch (e) { setTransStatus("Erro ao carregar a análise."); return; }
+  if (!d.available) {
+    setTransStatus("Nenhuma análise ainda. Peça ao Claude: “analise a transcrição”.");
+    return;
+  }
+  analysis = d;
+  applyAnalysisToDOM();
+  const n = (d.segments || []).reduce((a, s) => a + (s.issues ? s.issues.length : 0), 0);
+  setTransStatus(`Análise carregada · ${n} apontamento(s). Use “Aplicar sugestão” onde quiser.`, true);
+}
+
+// um corte está aplicado se o intervalo do trecho está em manualCuts
+function isCutApplied(i) {
+  const s = transSegs[i];
+  return !!s && manualCuts.some((c) => c[0] === s.start && c[1] === s.end);
+}
+
+async function toggleCut(i, btn, el) {
+  const s = transSegs[i];
+  if (!s) return;
+  const on = isCutApplied(i);
+  if (on) manualCuts = manualCuts.filter((c) => !(c[0] === s.start && c[1] === s.end));
+  else manualCuts.push([s.start, s.end]);
+  el.classList.toggle("cut", !on);
+  btn.classList.toggle("on", !on);
+  btn.textContent = !on ? "Removido ✓ (desfazer)" : "Remover do vídeo";
+  await detect();  // atualiza timeline + estatísticas (e o XML exportado)
+}
+
+async function applyAllCuts(cutSegs) {
+  for (const cs of cutSegs) {
+    const s = transSegs[cs.index];
+    if (s && !isCutApplied(cs.index)) manualCuts.push([s.start, s.end]);
+  }
+  applyAnalysisToDOM();  // reflete o novo estado dos botões/marcações
+  await detect();
+}
+
+function applyAnalysisToDOM() {
+  if (!analysis || !analysis.segments) return;
+  const wrap = $("transcript");
+
+  // limpa marcações de uma análise anterior (evita sobras de outro vídeo)
+  wrap.querySelectorAll(".issues").forEach((e) => e.remove());
+  wrap.querySelectorAll(".seg.has-issue").forEach((e) => e.classList.remove("has-issue"));
+  wrap.querySelectorAll(".seg.cut").forEach((e) => e.classList.remove("cut"));
+
+  // banner de resumo no topo (+ botão "remover todos os repetidos")
+  const oldSum = wrap.querySelector(".ai-summary");
+  if (oldSum) oldSum.remove();
+  if (analysis.summary) {
+    const sum = document.createElement("div");
+    sum.className = "ai-summary text-[13px] bg-bg-secondary rounded-md px-2.5 py-2 mb-2.5";
+    sum.textContent = analysis.summary;
+    const cutSegs = analysis.segments.filter((s) => s.cut);
+    if (cutSegs.length) {
+      const allBtn = document.createElement("button");
+      allBtn.className = "ai-cuts-all mt-2 bg-transparent text-accent-soft border border-accent/50 rounded-sm px-2.5 py-1 text-xs hover:bg-accent/10";
+      allBtn.textContent = `Remover todos os ${cutSegs.length} trechos repetidos do vídeo`;
+      allBtn.onclick = () => applyAllCuts(cutSegs);
+      sum.appendChild(document.createElement("br"));
+      sum.appendChild(allBtn);
+    }
+    wrap.insertBefore(sum, wrap.firstChild);
+  }
+
+  const segEls = [...wrap.querySelectorAll(".seg")];
+  for (const a of analysis.segments) {
+    const el = segEls[a.index];
+    if (!el) continue;
+    el.classList.add("has-issue");
+
+    const box = document.createElement("div");
+    box.className = "issues basis-full mt-0.5 ml-[116px] text-xs";
+    box.innerHTML = (a.issues || []).map((it) =>
+      `<div class="iss text-text-secondary mb-0.5">"${escHtml(it.trecho)}" → <b class="text-accent-soft font-medium">${escHtml(it.correcao)}</b> ` +
+      `<span class="note text-text-muted">(${escHtml(it.tipo)}: ${escHtml(it.nota)})</span></div>`
+    ).join("");
+
+    if (a.suggestion) {
+      const btn = document.createElement("button");
+      btn.className = "apply mt-1 bg-transparent text-accent-soft border border-accent/50 rounded-sm px-2.5 py-1 text-xs hover:bg-accent/10";
+      btn.textContent = "Aplicar sugestão";
+      btn.onclick = () => {
+        transSegs[a.index].text = a.suggestion;
+        el.querySelector(".x").textContent = a.suggestion;
+      };
+      box.appendChild(btn);
+    }
+
+    if (a.cut) {
+      const applied = isCutApplied(a.index);
+      el.classList.toggle("cut", applied);
+      const cutBtn = document.createElement("button");
+      cutBtn.className = "cut-btn mt-1 ml-1.5 px-2.5 py-1 text-xs rounded-sm border border-cut/60 text-danger-text hover:bg-cut/20" + (applied ? " on" : "");
+      cutBtn.textContent = applied ? "Removido ✓ (desfazer)" : "Remover do vídeo";
+      cutBtn.onclick = () => toggleCut(a.index, cutBtn, el);
+      box.appendChild(cutBtn);
+    }
+
+    el.appendChild(box);
+  }
+}
+
+function setTransStatus(msg, ok = false) {
+  const el = $("transStatus");
+  el.textContent = msg;
+  el.className = "text-xs break-all " + (ok ? "text-keep" : "text-text-secondary");
+}
+
+// --- inicialização ---
+async function init() {
+  const info = await (await fetch("/api/info")).json();
+  applyMedia(info.video, info.media, info.video_dir);
+
+  // aplica os defaults vindos do servidor
+  $("threshold").value = info.defaults.threshold;
+  $("min_silence").value = info.defaults.min_silence;
+  $("margin").value = info.defaults.margin;
+  $("min_clip").value = info.defaults.min_clip;
+  refreshLabels();
+
+  PARAMS.forEach((p) => $(p).addEventListener("input", scheduleDetect));
+
+  $("transcript").innerHTML =
+    `<div class="text-text-secondary text-[13px] py-2">Carregue um vídeo em "Abrir vídeo" para transcrever automaticamente.</div>`;
+
+  await detect();
+  loop();
+}
+
+init();
+</script>
+</body>
+</html>
