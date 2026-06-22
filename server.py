@@ -342,12 +342,15 @@ def export_srt(params):
 REMOTION_DIR = os.path.join(BASE, "remotion")
 
 
-def render_motion_remotion(text, duration, out_path, width, height, fps, position):
+def render_motion_remotion(text, duration, out_path, width, height, fps, motion_props):
     """
     Renderiza o clipe de texto animado (.mov ProRes 4444 com alpha) usando o
     projeto Remotion (React) em remotion/. As props vao por arquivo JSON (evita
     problema de aspas/acentos no argv). O fundo e transparente -- o clipe vira a
     2a trilha de video no Premiere.
+
+    motion_props: dict com position, animationStyle, entryDirection, accentWord,
+                  accentColor, showBgBox, capsMode, staggerSpeed.
 
     Requer Node.js + o `npm install` do remotion/ (a skill /setup cuida disso).
     """
@@ -361,7 +364,15 @@ def render_motion_remotion(text, duration, out_path, width, height, fps, positio
         "fps": int(round(fps)),
         "width": int(width),
         "height": int(height),
-        "position": position,
+        # personalizacoes visuais vindas do painel
+        "position":        motion_props.get("position", "bottom"),
+        "animationStyle":  motion_props.get("animationStyle", "spring"),
+        "entryDirection":  motion_props.get("entryDirection", "bottom"),
+        "accentWord":      motion_props.get("accentWord", ""),
+        "accentColor":     motion_props.get("accentColor", "amber"),
+        "showBgBox":       bool(motion_props.get("showBgBox", False)),
+        "capsMode":        bool(motion_props.get("capsMode", False)),
+        "staggerSpeed":    float(motion_props.get("staggerSpeed", 1)),
     }
     props_path = os.path.abspath(out_path) + ".props.json"
     with open(props_path, "w", encoding="utf-8") as f:
@@ -406,9 +417,22 @@ def render_motion(params):
     if duration <= 0:
         return {"ok": False, "error": "Duracao invalida para esse trecho."}
 
-    position = params.get("position", "bottom")
-    if position not in ("bottom", "center", "top"):
-        position = "bottom"
+    # Coleta e valida todas as opcoes de personalizacao vindas do painel
+    _VALID_POSITIONS  = {"bottom", "center", "top"}
+    _VALID_STYLES     = {"spring", "typewriter", "highlight", "lateral", "punch"}
+    _VALID_DIRECTIONS = {"bottom", "top", "left", "right"}
+    _VALID_COLORS     = {"amber", "white", "red"}
+
+    motion_props = {
+        "position":       params.get("position", "bottom")       if params.get("position")       in _VALID_POSITIONS  else "bottom",
+        "animationStyle": params.get("animationStyle", "spring")  if params.get("animationStyle")  in _VALID_STYLES     else "spring",
+        "entryDirection": params.get("entryDirection", "bottom")  if params.get("entryDirection")  in _VALID_DIRECTIONS else "bottom",
+        "accentWord":     str(params.get("accentWord", ""))[:80],
+        "accentColor":    params.get("accentColor", "amber")      if params.get("accentColor")     in _VALID_COLORS     else "amber",
+        "showBgBox":      bool(params.get("showBgBox", False)),
+        "capsMode":       bool(params.get("capsMode", False)),
+        "staggerSpeed":   max(0.25, min(4.0, float(params.get("staggerSpeed", 1)))),
+    }
 
     motion_dir = os.path.join(OUTDIR, "motion")
     os.makedirs(motion_dir, exist_ok=True)
@@ -417,7 +441,7 @@ def render_motion(params):
     try:
         render_motion_remotion(item["frase"], duration, out_path,
                                INFO["width"], INFO["height"], INFO["fps"],
-                               position)
+                               motion_props)
         # Preview H.264 (texto sobre o video real) para tocar no navegador --
         # o .mov ProRes entregue ao Premiere nao toca em navegador.
         core.render_motion_preview(FFMPEG, VIDEO, out_path, item["start_s"],

@@ -31,6 +31,12 @@ body {
   font-size: 13px;
 }
 
+/* Scrollbars customizadas para combinar com o tema escuro */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--color-bg-secondary); border-radius: 99px; }
+::-webkit-scrollbar-thumb { background: var(--color-text-muted); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-secondary); }
+
 /* --- estado dirigido por JS via classList.toggle em elementos ancestrais ---
    Tailwind não expressa "ancestral com classe X" sem reestruturar o JS;
    mais seguro manter essas 3 regras como CSS simples do que tocar na lógica. */
