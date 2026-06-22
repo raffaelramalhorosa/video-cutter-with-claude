@@ -107,7 +107,40 @@ ls web/tools/ 2>/dev/null
   (em macOS/Linux, troque pelo nome do binário baixado, ex.:
   `./web/tools/tailwindcss-macos-arm64 ...`).
 
-## Passo 7 — Checar tkinter (diálogo nativo de "Abrir vídeo")
+## Passo 7 — Checar Node.js + dependências do Remotion
+
+O motion design usa Remotion (React/Node.js) para gerar clipes animados. O
+projeto principal é Python puro — o Remotion fica isolado na pasta `remotion/`.
+
+```bash
+node --version
+npm --version
+```
+- Precisa de **Node.js 18+** (qualquer versão LTS recente serve).
+- Se Node.js não estiver instalado: sugira instalar de `https://nodejs.org/`
+  (LTS). Não instale sem perguntar — é uma ferramenta de sistema.
+
+Depois de confirmar que o Node.js existe, cheque se as dependências já foram
+instaladas:
+
+```bash
+ls remotion/node_modules 2>/dev/null && echo "ok" || echo "faltando"
+```
+
+- Se `node_modules` não existir (falta na primeira vez que clona): **são ~300 MB
+  de downloads do npm**. Explique ao usuário e pergunte se pode instalar agora.
+  Se confirmar:
+  ```bash
+  cd remotion && npm install
+  ```
+  Em Windows via Bash/Git Bash, `npx` é um `.cmd` — o servidor já trata isso
+  automaticamente; o `npm install` funciona normalmente.
+- Se já existir: ok.
+
+Nota: a pasta `remotion/node_modules/` está no `.gitignore` — nunca vai para
+o git. Quem clonar o repo precisa rodar este passo.
+
+## Passo 8 — Checar tkinter (diálogo nativo de "Abrir vídeo")
 
 ```bash
 python3 -c "import tkinter" 2>&1 || python -c "import tkinter" 2>&1
@@ -122,27 +155,30 @@ python3 -c "import tkinter" 2>&1 || python -c "import tkinter" 2>&1
   - Fedora: `sudo dnf install python3-tkinter`
   - Arch: `sudo pacman -S tk`
 
-## Passo 8 — Relatório final
+## Passo 9 — Relatório final
 
 Depois de checar tudo, mostre um checklist simples e literal (sem jargão sem
 explicação), por exemplo:
 
 ```
-1. Python 3        — OK (3.12.4)
-2. FFmpeg/ffprobe   — OK
-3. Filtro whisper   — FALTANDO (FFmpeg atual não tem suporte a transcrição)
-4. Modelo Whisper   — OK (models/ggml-large-v3-turbo.bin)
-5. Tailwind CLI     — FALTANDO
-6. tkinter          — OK
+1. Python 3           — OK (3.12.4)
+2. FFmpeg/ffprobe     — OK
+3. Filtro whisper     — FALTANDO (FFmpeg atual não tem suporte a transcrição)
+4. Modelo Whisper     — OK (models/ggml-large-v3-turbo.bin)
+5. Tailwind CLI       — FALTANDO
+6. Node.js + npm      — OK (v22.3.0 / 10.8.1)
+7. remotion/node_modules — OK
+8. tkinter            — OK
 ```
 
 Para cada item "FALTANDO", já deixe claro qual foi a decisão tomada (baixado
 agora / usuário disse para pular / aguardando confirmação) e o que ainda falta
 o usuário decidir. Sem essas peças, diga exatamente qual funcionalidade fica
 indisponível (ex.: "sem o filtro whisper, o botão Transcrever não vai
-funcionar, mas cortar silêncio e exportar para o Premiere funciona normal").
+funcionar, mas cortar silêncio e exportar para o Premiere funciona normal"; "sem
+Node.js/Remotion, o botão Gerar do Motion Design não funciona").
 
-## Passo 9 — Validar (opcional, com permissão do usuário)
+## Passo 10 — Validar (opcional, com permissão do usuário)
 
 Se tudo estiver OK (ou o usuário aceitou seguir com algo faltando), ofereça
 subir o painel para confirmar que está tudo funcionando:
