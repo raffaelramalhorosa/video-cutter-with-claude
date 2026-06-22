@@ -709,12 +709,12 @@ function motionRowHtml(i, it, st) {
 
   // Cabeçalho da frase
   const header =
-    `<div class="flex justify-between items-baseline gap-3 mb-2">` +
+    `<div class="flex justify-between items-baseline gap-3 mb-3">` +
     `<span class="text-text-muted tabular-nums text-xs whitespace-nowrap">${timeLabel}</span>` +
     `<span class="text-text-primary text-[13px] flex-1">"${escHtml(it.frase)}"</span>` +
     `</div>`;
 
-  // Painel de personalização (sempre visível)
+  // Helper: select estilizado
   const sel = (id, label, opts, val) =>
     `<div class="flex flex-col gap-1">` +
     `<span class="text-text-muted text-xs">${label}</span>` +
@@ -722,52 +722,76 @@ function motionRowHtml(i, it, st) {
     opts.map(([v, l]) => `<option value="${v}"${val === v ? " selected" : ""}>${l}</option>`).join("") +
     `</select></div>`;
 
-  const customPanel =
-    `<div class="grid grid-cols-2 min-[560px]:grid-cols-3 gap-2.5 mb-3">` +
-    sel(`mPos${i}`, "Posição", [["bottom","Inferior"],["center","Centro"],["top","Superior"]], st.position) +
-    sel(`mStyle${i}`, "Animação", [["spring","Spring (padrão)"],["typewriter","Typewriter"],["highlight","Highlight"],["lateral","Lateral"],["punch","Punch-in"]], st.animationStyle) +
-    sel(`mDir${i}`, "Direção", [["bottom","↑ Baixo"],["top","↓ Cima"],["left","→ Esquerda"],["right","← Direita"]], st.entryDirection) +
-    sel(`mAccentColor${i}`, "Cor destaque", [["amber","Âmbar"],["white","Branco"],["red","Vermelho"]], st.accentColor) +
+  // Coluna esquerda: todos os controles de personalização
+  const controls =
+    `<div class="flex flex-col gap-2.5 flex-1 min-w-0">` +
+    // Linha 1: posição, animação, direção
+    `<div class="grid grid-cols-3 gap-2">` +
+    sel(`mPos${i}`,   "Posição",   [["bottom","Inferior"],["center","Centro"],["top","Superior"]], st.position) +
+    sel(`mStyle${i}`, "Animação",  [["spring","Spring"],["typewriter","Typewriter"],["highlight","Highlight"],["lateral","Lateral"],["punch","Punch-in"]], st.animationStyle) +
+    sel(`mDir${i}`,   "Direção",   [["bottom","↑ Baixo"],["top","↓ Cima"],["left","→ Esq."],["right","← Dir."]], st.entryDirection) +
     `</div>` +
-    `<div class="grid grid-cols-1 min-[560px]:grid-cols-2 gap-2.5 mb-3">` +
+    // Linha 2: cor destaque + palavra em destaque
+    `<div class="grid grid-cols-2 gap-2">` +
+    sel(`mAccentColor${i}`, "Cor destaque", [["amber","Âmbar"],["white","Branco"],["red","Vermelho"]], st.accentColor) +
     `<div class="flex flex-col gap-1">` +
     `<span class="text-text-muted text-xs">Palavra em destaque</span>` +
     `<input type="text" id="mAccentWord${i}" value="${escHtml(st.accentWord)}" placeholder="ex: propósito" ` +
     `class="text-text-primary bg-bg text-xs rounded-sm px-2 py-1.5 border border-text-muted/20 placeholder:text-text-muted">` +
     `</div>` +
+    `</div>` +
+    // Linha 3: stagger
     `<div class="flex flex-col gap-1">` +
     `<label class="text-text-muted text-xs flex justify-between">Velocidade do stagger <span id="mStaggerLbl${i}">${st.staggerSpeed.toFixed(1)}×</span></label>` +
-    `<input type="range" id="mStagger${i}" min="0.25" max="3" step="0.25" value="${st.staggerSpeed}" class="w-full accent-accent mt-1">` +
+    `<input type="range" id="mStagger${i}" min="0.25" max="3" step="0.25" value="${st.staggerSpeed}" class="w-full accent-accent">` +
     `</div>` +
-    `</div>` +
-    `<div class="flex gap-4 mb-3">` +
+    // Linha 4: checkboxes
+    `<div class="flex gap-4">` +
     `<label class="flex items-center gap-2 text-xs text-text-secondary cursor-pointer">` +
     `<input type="checkbox" id="mBgBox${i}" class="accent-accent"${st.showBgBox ? " checked" : ""}> Caixa de fundo</label>` +
     `<label class="flex items-center gap-2 text-xs text-text-secondary cursor-pointer">` +
     `<input type="checkbox" id="mCaps${i}" class="accent-accent"${st.capsMode ? " checked" : ""}> MAIÚSCULAS</label>` +
+    `</div>` +
+    // Linha 5: botão gerar
+    `<div class="mt-auto pt-1">` +
+    (st.generating
+      ? `<div class="flex items-center gap-2 text-text-secondary text-xs"><span class="w-3.5 h-3.5 rounded-full border-2 border-text-muted/30 border-t-text-primary animate-spin"></span>Gerando clipe…</div>`
+      : `<button id="mGenBtn${i}" class="bg-accent text-on-accent rounded-sm px-3 py-1.5 text-xs font-medium hover:bg-accent-hover transition-colors">` +
+        (st.path ? "Regerar" : "Gerar clipe") + `</button>`) +
+    `</div>` +
     `</div>`;
 
-  // Botões de ação + preview
-  let action;
+  // Coluna direita: preview em tamanho visível (proporção 9:16)
+  let preview;
   if (st.generating) {
-    action =
-      `<div class="flex items-center gap-2 text-text-secondary text-xs">` +
-      `<span class="w-3.5 h-3.5 rounded-full border-2 border-text-muted/30 border-t-text-primary animate-spin"></span>` +
-      `Gerando clipe…</div>`;
+    // Placeholder animado enquanto gera
+    preview =
+      `<div class="w-[160px] shrink-0 aspect-[9/16] bg-bg rounded-md flex flex-col items-center justify-center gap-2 border border-text-muted/10">` +
+      `<span class="w-6 h-6 rounded-full border-2 border-text-muted/20 border-t-accent animate-spin"></span>` +
+      `<span class="text-text-muted text-[11px]">Gerando…</span>` +
+      `</div>`;
   } else if (st.path) {
-    action =
-      `<div class="flex items-center gap-2 flex-wrap mb-2">` +
-      `<button id="mGenBtn${i}" class="bg-accent text-on-accent rounded-sm px-2.5 py-1.5 text-xs font-medium hover:bg-accent-hover transition-colors">Regerar</button>` +
-      `<label class="flex items-center gap-1.5 text-xs text-text-secondary">` +
+    preview =
+      `<div class="w-[160px] shrink-0 flex flex-col gap-1.5">` +
+      `<video src="/motion/${i}.preview.mp4?ts=${st.ts}" controls playsinline` +
+      ` class="w-full aspect-[9/16] bg-black rounded-md object-contain"></video>` +
+      `<label class="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer justify-center">` +
       `<input type="checkbox" id="mInc${i}" class="accent-accent"${st.included ? " checked" : ""}> Incluir na exportação</label>` +
-      `</div>` +
-      `<video src="/motion/${i}.preview.mp4?ts=${st.ts}" controls class="w-full max-h-[140px] bg-black rounded-sm"></video>`;
+      `</div>`;
   } else {
-    action =
-      `<button id="mGenBtn${i}" class="bg-accent text-on-accent rounded-sm px-3 py-1.5 text-xs font-medium hover:bg-accent-hover transition-colors">Gerar clipe</button>`;
+    // Placeholder vazio antes de gerar
+    preview =
+      `<div class="w-[160px] shrink-0 aspect-[9/16] bg-bg rounded-md flex items-center justify-center border border-dashed border-text-muted/20">` +
+      `<span class="text-text-muted text-[11px] text-center px-3">Preview<br>após gerar</span>` +
+      `</div>`;
   }
 
-  return header + customPanel + action;
+  // Layout: cabeçalho em cima, depois 2 colunas (controles | preview)
+  return header +
+    `<div class="flex gap-3 items-start">` +
+    controls +
+    preview +
+    `</div>`;
 }
 
 // Conecta os listeners de um row (após innerHTML)
