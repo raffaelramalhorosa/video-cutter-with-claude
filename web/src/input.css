@@ -44,6 +44,13 @@ body {
 #timeline.loading .keep-block { opacity: .25; }
 .seg.has-issue .x { border-left: 2px solid var(--color-accent-soft); padding-left: 6px; }
 .seg.cut .x { text-decoration: line-through; opacity: .5; }
+/* glow do segmento que está passando no vídeo agora (timeupdate em TranscriptPanel) */
+.seg.playing {
+  background-color: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 50%, transparent), 0 0 10px color-mix(in srgb, var(--color-accent) 35%, transparent);
+  border-radius: var(--radius-sm);
+  transition: background-color .15s ease, box-shadow .15s ease;
+}
 .cut-btn.on { background-color: var(--color-cut); border-color: var(--color-cut); color: var(--color-text-primary); }
 
 /* === React: estilos que antes estavam no index.html === */

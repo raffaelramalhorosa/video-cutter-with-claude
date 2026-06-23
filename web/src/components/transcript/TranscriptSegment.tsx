@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 import { useAppStore } from '../../store/useAppStore'
-import type { AnalysisSegment } from '../../types'
+import type { AnalysisSegment, SegOverlay } from '../../types'
 import { playerRef } from '../player/VideoPlayer'
 
 function fmt(s: number) {
@@ -15,13 +15,36 @@ interface Props {
   end: number
   text: string
   seg?: AnalysisSegment
+  overlay?: SegOverlay
+  active?: boolean
 }
 
-export default function TranscriptSegment({ index, start, end, text, seg }: Props) {
+export default function TranscriptSegment({ index, start, end, text, seg, overlay, active }: Props) {
   const { toggleManualCut, manualCuts, updateTransSeg, transSegs } = useAppStore()
   const xRef = useRef<HTMLSpanElement>(null)
 
   const isCut = manualCuts.some(([s, e]) => s === transSegs[index]?.start && e === transSegs[index]?.end)
+
+  // overlay reflete o resultado final do corte (silencio + manual_cuts) -- por isso
+  // nao precisa de logica separada para "frase repetida" vs "silencio".
+  if (overlay?.status === 'cut') {
+    return (
+      <div className={`seg flex items-center gap-2 py-1 opacity-40 ${active ? 'playing' : ''}`}>
+        <span className="t text-text-muted text-xs tabular-nums whitespace-nowrap min-w-[116px]">
+          {fmt(start)} → {fmt(end)}
+        </span>
+        <span className="text-text-muted text-[13px] line-through">🔇 {text}</span>
+        {seg?.cut && (
+          <button
+            onClick={() => toggleManualCut(start, end)}
+            className="ml-auto px-2 py-0.5 text-xs rounded-sm border border-cut/60 text-danger-text hover:bg-cut/20 on"
+          >
+            Removido ✓ (desfazer)
+          </button>
+        )}
+      </div>
+    )
+  }
 
   const handleMouseEnter = () => {
     const fn = (window as unknown as Record<string, unknown>).__hlSegment as ((s: number, e: number) => void) | undefined
@@ -44,7 +67,7 @@ export default function TranscriptSegment({ index, start, end, text, seg }: Prop
 
   return (
     <div
-      className={`seg flex flex-wrap gap-x-3 gap-y-1.5 py-2 ${isCut ? 'cut' : ''} ${seg ? 'has-issue' : ''}`}
+      className={`seg flex flex-wrap gap-x-3 gap-y-1.5 py-2 ${isCut ? 'cut' : ''} ${seg ? 'has-issue' : ''} ${active ? 'playing' : ''}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
@@ -54,6 +77,14 @@ export default function TranscriptSegment({ index, start, end, text, seg }: Prop
       >
         {fmt(start)} → {fmt(end)}
       </span>
+      {overlay?.status === 'partial' && (
+        <span
+          title="Parte deste trecho cai num silêncio/corte removido"
+          className="text-[11px] text-text-muted border border-text-muted/30 rounded-sm px-1.5 py-0.5 self-center"
+        >
+          borda será cortada
+        </span>
+      )}
       <span
         ref={xRef}
         className="x text-text-primary flex-1 outline-none rounded-[4px] px-1 py-0.5 hover:bg-bg/40 focus:outline focus:outline-1 focus:outline-accent"

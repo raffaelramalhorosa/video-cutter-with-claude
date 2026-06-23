@@ -19,6 +19,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -97,6 +98,12 @@ def detect(params):
     clips, silences = compute(params)
     kept = sum(c["sec_out"] - c["sec_in"] for c in clips)
     dur = INFO["duration"]
+
+    # classifica a transcricao atual (se o painel mandou) contra os clips desta rodada --
+    # assim a transcricao reflete em tempo real o que os parametros/cortes manuais tiram do video.
+    segs = params.get("segments") or []
+    transcript_overlay = core.classify_segments(segs, clips, INFO["fps"]) if segs else []
+
     return {
         "silences": [
             {"start": round(s, 3),
@@ -114,6 +121,7 @@ def detect(params):
             "removed": round(dur - kept, 3),
             "cuts": len(clips),
         },
+        "transcript_overlay": transcript_overlay,
     }
 
 
@@ -320,23 +328,40 @@ def _sec_to_srt(t):
 
 
 def export_srt(params):
-    """Grava SRT + TXT a partir dos segmentos (possivelmente editados) do painel."""
+    """
+    Grava SRT + TXT a partir dos segmentos (possivelmente editados) do painel,
+    re-temporizados para a timeline JA CORTADA (silencio + manual_cuts) -- assim
+    a legenda fica sincronizada com o timeline.xml gerado para o mesmo corte.
+    Segmentos que cairam inteiros num trecho removido sao descartados.
+    """
     segs = params.get("segments", [])
     if not segs:
         return {"ok": False, "error": "Nada para exportar."}
+
+    clips, _ = compute(params)
+    overlay = core.classify_segments(segs, clips, INFO["fps"]) if clips else []
+
+    remapped = []
+    for s, ov in zip(segs, overlay):
+        if ov["status"] == "cut":
+            continue
+        remapped.append({**s, "start": ov["tl_start_s"], "end": ov["tl_end_s"]})
+
+    if not remapped:
+        return {"ok": False, "error": "Todos os trechos foram removidos pelo corte atual."}
 
     os.makedirs(OUTDIR, exist_ok=True)
     srt_path = os.path.join(OUTDIR, "transcricao.srt")
     txt_path = os.path.join(OUTDIR, "transcricao.txt")
 
     with open(srt_path, "w", encoding="utf-8") as f:
-        for i, s in enumerate(segs, 1):
+        for i, s in enumerate(remapped, 1):
             text = " ".join((s.get("text") or "").split())  # 1 linha por legenda
             f.write(f"{i}\n{_sec_to_srt(s['start'])} --> {_sec_to_srt(s['end'])}\n{text}\n\n")
     with open(txt_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(" ".join((s.get("text") or "").split()) for s in segs))
+        f.write("\n".join(" ".join((s.get("text") or "").split()) for s in remapped))
 
-    return {"ok": True, "count": len(segs), "srt_path": srt_path, "txt_path": txt_path}
+    return {"ok": True, "count": len(remapped), "srt_path": srt_path, "txt_path": txt_path}
 
 
 REMOTION_DIR = os.path.join(BASE, "remotion")
@@ -465,6 +490,20 @@ def read_analysis():
         return {"available": False, "error": str(e)}
     data["available"] = True
     return data
+
+
+# A "escuta" (Monitor do Claude) toca este arquivo a cada ciclo do loop. Se ele
+# esta fresco, a sessao do Claude esta ativa e a analise sai automatica.
+HEARTBEAT = os.path.join(OUTDIR, ".ia_heartbeat")
+
+
+def ia_status():
+    """Diz ao painel se a IA esta 'escutando' (heartbeat recente do Monitor)."""
+    try:
+        age = time.time() - os.path.getmtime(HEARTBEAT)
+        return {"connected": age <= 15, "age_s": round(age, 1)}
+    except OSError:
+        return {"connected": False, "age_s": None}
 
 
 # ---------------------------------------------------------------------------
@@ -642,6 +681,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(404)
         elif path == "/api/analysis":
             self._json(read_analysis())
+        elif path == "/api/ia_status":
+            self._json(ia_status())
         elif path == "/api/info":
             self._json({
                 "video": os.path.basename(VIDEO),

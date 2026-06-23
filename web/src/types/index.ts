@@ -82,9 +82,16 @@ export interface MediaMeta {
   channels: number
 }
 
+export interface SegOverlay {
+  status: 'kept' | 'cut' | 'partial'
+  tl_start_s?: number
+  tl_end_s?: number
+}
+
 export interface DetectResult {
   keeps: Keep[]
   stats: { duration: number; kept: number; removed: number; cuts: number }
+  transcript_overlay: SegOverlay[]
 }
 
 export interface ExportOpts {

@@ -22,3 +22,16 @@ remotion/out/
 
 # Build do frontend React
 web/dist/
+
+# Dependencias do frontend (geradas por npm install)
+web/node_modules/
+
+# Dependencias e build do exemplo Remotion (geradas por npm install)
+remotion-example/node_modules/
+remotion-example/out/
+
+# Artefato antigo do Tailwind CLI (gerado; hoje o projeto usa @tailwindcss/vite)
+web/tailwind.css
+
+# Arquivo lixo (redirecionamento acidental para o device 'nul' do Windows)
+/nul

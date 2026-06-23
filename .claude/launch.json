@@ -13,6 +13,13 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 5173
+    },
+    {
+      "name": "remotion-studio",
+      "cwd": "remotion-example",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["remotion", "studio", "--port", "3001"],
+      "port": 3001
     }
   ]
 }

@@ -25,12 +25,15 @@ export const apiInfo = () => get<InfoResponse>('/api/info')
 
 export const apiAnalysis = () => get<Analysis & { available: boolean }>('/api/analysis')
 
+export const apiIaStatus = () => get<{ connected: boolean; age_s: number | null }>('/api/ia_status')
+
 export const apiDetect = (params: {
   threshold: number
   min_silence: number
   margin: number
   min_clip: number
   manual_cuts: [number, number][]
+  segments?: { start: number; end: number }[]
 }) => post<DetectResult>('/api/detect', params)
 
 export const apiExport = (params: {
@@ -57,8 +60,14 @@ export const apiTranscribe = (params: { language: string }) =>
     '/api/transcribe', params
   )
 
-export const apiExportSrt = (params: { segments: TranscriptSegment[] }) =>
-  post<{ ok: boolean; count: number; srt_path: string; error?: string }>('/api/export_srt', params)
+export const apiExportSrt = (params: {
+  segments: TranscriptSegment[]
+  threshold: number
+  min_silence: number
+  margin: number
+  min_clip: number
+  manual_cuts: [number, number][]
+}) => post<{ ok: boolean; count: number; srt_path: string; error?: string }>('/api/export_srt', params)
 
 export const apiPick = () =>
   post<{ ok: boolean; cancelled?: boolean; video: string; media: MediaMeta; video_dir: string; error?: string }>(

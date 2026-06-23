@@ -361,6 +361,47 @@ def motion_clipitem(i, item, tb, ntsc):
     )
 
 
+def classify_segments(segs, clips, fps):
+    """
+    Classifica segmentos de transcricao (cada um {start, end} em segundos do
+    video ORIGINAL) contra os trechos mantidos (clips). Para cada segmento:
+      - "kept": cai inteiro dentro de um clip mantido.
+      - "cut": nao tem overlap com nenhum clip (silencio removido ou manual_cut).
+      - "partial": so uma borda foi cortada (sobra de margem/min_clip).
+    Para kept/partial, calcula tl_start_s/tl_end_s -- posicao em segundos na
+    timeline JA CORTADA, via map_time_to_timeline (mesma funcao usada para
+    capitulos e motion design).
+    """
+    results = []
+    for seg in segs:
+        start, end = seg["start"], seg["end"]
+        if not clips or end <= start:
+            results.append({"status": "cut"})
+            continue
+
+        # soma a sobreposicao do segmento com os trechos mantidos
+        overlap = 0.0
+        for c in clips:
+            o = min(end, c["sec_out"]) - max(start, c["sec_in"])
+            if o > 0:
+                overlap += o
+        total = end - start
+
+        if overlap <= 0:
+            results.append({"status": "cut"})
+            continue
+
+        status = "kept" if overlap >= total - 1e-3 else "partial"
+        tl_start = map_time_to_timeline(start, clips, fps)
+        tl_end = map_time_to_timeline(end, clips, fps)
+        results.append({
+            "status": status,
+            "tl_start_s": round(tl_start["frame"] / fps, 3),
+            "tl_end_s": round(tl_end["frame"] / fps, 3),
+        })
+    return results
+
+
 def build_xml(info, clips, src_path, seq_name, markers=None, motion_track=None):
     tb, ntsc = timebase_ntsc(info["fps_num"], info["fps_den"], info["fps"])
     src_frames = int(round(info["duration"] * info["fps"]))

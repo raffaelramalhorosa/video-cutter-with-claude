@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Keep, Params, TranscriptSegment, Analysis, MotionEntry, ExportOpts, MediaMeta } from '../types'
+import type { Keep, Params, TranscriptSegment, Analysis, MotionEntry, ExportOpts, MediaMeta, SegOverlay } from '../types'
 import {
   apiInfo, apiDetect, apiExport, apiAnalysis, apiTranscribe,
   apiExportSrt, apiPick, apiMotionRender,
@@ -26,6 +26,7 @@ interface AppState {
 
   // transcrição + análise
   transSegs: TranscriptSegment[]
+  transOverlay: SegOverlay[]
   transLang: string
   analysis: Analysis | null
   analysisPollTimer: ReturnType<typeof setInterval> | null
@@ -42,7 +43,6 @@ interface AppState {
   detect: () => Promise<void>
   pickVideo: () => Promise<void>
   transcribe: () => Promise<void>
-  loadAnalysis: () => Promise<void>
   startAnalysisPoll: () => void
   stopAnalysisPoll: () => void
   applyAnalysis: (a: Analysis) => void
@@ -85,6 +85,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   skipMode: false,
   detecting: false,
   transSegs: [],
+  transOverlay: [],
   transLang: 'pt',
   analysis: null,
   analysisPollTimer: null,
@@ -116,11 +117,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   detect: async () => {
-    const { params, manualCuts } = get()
+    const { params, manualCuts, transSegs } = get()
     set({ detecting: true })
     try {
-      const d = await apiDetect({ ...params, manual_cuts: manualCuts })
-      set({ keeps: d.keeps, detecting: false })
+      const segments = transSegs.map((s) => ({ start: s.start, end: s.end }))
+      const d = await apiDetect({ ...params, manual_cuts: manualCuts, segments })
+      set({ keeps: d.keeps, transOverlay: d.transcript_overlay ?? [], detecting: false })
     } catch (e) {
       set({ detecting: false, status: { msg: 'Erro ao calcular cortes.', ok: false } })
     }
@@ -142,6 +144,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         manualCuts: [],
         keeps: [],
         transSegs: [],
+        transOverlay: [],
         analysis: null,
         motionState: {},
         status: { msg: 'Vídeo carregado: ' + d.video, ok: true },
@@ -158,6 +161,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { transLang } = get()
     set({
       transSegs: [],
+      transOverlay: [],
       analysis: null,
       motionState: {},
       transStatus: { msg: 'Transcrevendo com Whisper… pode demorar alguns minutos.', ok: false },
@@ -171,29 +175,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({
         transSegs: d.segments,
         transStatus: {
-          msg: `${d.count} segmentos · ${d.model} — edite os textos e clique em Exportar legenda`,
-          ok: true,
+          msg: `${d.count} segmentos · ${d.model} — gerando análise da IA automaticamente…`,
+          ok: false,
         },
       })
-      get().startAnalysisPoll()
+      await get().detect()  // classifica a transcricao contra o corte atual
+      get().startAnalysisPoll()  // aplica a analise sozinho assim que o Claude grava analise.json
     } catch (e) {
       set({ transStatus: { msg: 'Erro ao transcrever.', ok: false } })
-    }
-  },
-
-  loadAnalysis: async () => {
-    set({ transStatus: { msg: 'Carregando análise…', ok: false } })
-    try {
-      const d = await apiAnalysis()
-      if (!d.available) {
-        set({ transStatus: { msg: 'Nenhuma análise ainda. Peça ao Claude: "analise a transcrição".', ok: false } })
-        return
-      }
-      get().applyAnalysis(d)
-      const n = (d.segments ?? []).reduce((a: number, s) => a + (s.issues?.length ?? 0), 0)
-      set({ transStatus: { msg: `Análise carregada · ${n} apontamento(s).`, ok: true } })
-    } catch (e) {
-      set({ transStatus: { msg: 'Erro ao carregar análise.', ok: false } })
     }
   },
 
@@ -202,7 +191,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     let tries = 0
     const timer = setInterval(async () => {
       tries++
-      if (tries > 150) { get().stopAnalysisPoll(); return }
+      // ~10 min sem análise: para o poll e avisa (evita spinner girando para sempre)
+      if (tries > 150) {
+        get().stopAnalysisPoll()
+        set({ transStatus: { msg: 'A análise da IA não chegou. Peça ao Claude: "analise a transcrição".', ok: false } })
+        return
+      }
       try {
         const d = await apiAnalysis()
         if (d.available) {
@@ -245,7 +239,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (motionIndices.length) msg += ` · ${motionIndices.length} motion`
       if (opts.includeSrt && transSegs.length) {
         try {
-          const sd = await apiExportSrt({ segments: transSegs })
+          const sd = await apiExportSrt({ segments: transSegs, ...params, manual_cuts: manualCuts })
           msg += sd.ok ? ` · legenda (${sd.count} seg)` : ' · falha na legenda'
         } catch (_) { msg += ' · falha na legenda' }
       }

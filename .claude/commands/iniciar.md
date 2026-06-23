@@ -17,10 +17,12 @@ mostre um resumo curto do que ficou ligado e o link do preview.
    - persistent: true
    - timeout_ms: 300000
    - command (Bash/POSIX) — inicializa `last` com o mtime atual ANTES do loop
-     (evita falso positivo na primeira volta) e usa DEBOUNCE de 3s (a transcrição
-     é escrita incrementalmente; só emite quando o mtime fica estável):
+     (evita falso positivo na primeira volta), usa DEBOUNCE de 3s (a transcrição
+     é escrita incrementalmente; só emite quando o mtime fica estável) e toca
+     `output/.ia_heartbeat` a cada ciclo (o backend usa isso em `/api/ia_status`
+     para o painel mostrar "IA conectada/desconectada"):
      ```
-     cd "C:/Users/user/Documents/Ambiente/Ferramentas/claude-to-premier" && last=$(stat -c %Y output/transcricao.srt 2>/dev/null || echo ""); while true; do sleep 4; if [ -f output/transcricao.srt ]; then cur=$(stat -c %Y output/transcricao.srt 2>/dev/null); if [ -n "$cur" ] && [ "$cur" != "$last" ]; then sleep 3; chk=$(stat -c %Y output/transcricao.srt 2>/dev/null); if [ "$chk" = "$cur" ]; then echo "NOVA_TRANSCRICAO mtime=$cur arquivo=output/transcricao.srt"; last="$cur"; fi; fi; fi; done
+     cd "C:/Users/user/Documents/Ambiente/Ferramentas/claude-to-premier" && last=$(stat -c %Y output/transcricao.srt 2>/dev/null || echo ""); while true; do sleep 4; mkdir -p output; touch output/.ia_heartbeat; if [ -f output/transcricao.srt ]; then cur=$(stat -c %Y output/transcricao.srt 2>/dev/null); if [ -n "$cur" ] && [ "$cur" != "$last" ]; then sleep 3; chk=$(stat -c %Y output/transcricao.srt 2>/dev/null); if [ "$chk" = "$cur" ]; then echo "NOVA_TRANSCRICAO mtime=$cur arquivo=output/transcricao.srt"; last="$cur"; fi; fi; fi; done
      ```
 3. Se JÁ existir um monitor com essa descrição, não suba outro (evita duplicar).
 

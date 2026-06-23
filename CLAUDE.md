@@ -14,9 +14,13 @@ a trabalhar neste projeto nesta sessão, faça isto SEM perguntar:
      b) DEBOUNCE: a transcrição é escrita incrementalmente (o mtime muda várias
         vezes durante a gravação). Sem debounce, o monitor dispara dezenas de vezes
         e inunda o chat. Por isso, ao detectar mudança, espere 3s e só emita o
-        evento se o mtime tiver ficado ESTÁVEL (escrita terminou):
+        evento se o mtime tiver ficado ESTÁVEL (escrita terminou);
+     c) HEARTBEAT: a cada ciclo o monitor toca `output/.ia_heartbeat`. O backend
+        (`/api/ia_status`) checa a idade desse arquivo para o painel mostrar
+        "IA conectada/desconectada". Se o comando do monitor mudar e parar de
+        tocar o heartbeat, o painel mostrará desconectado por engano.
      ```
-     cd "C:/Users/user/Documents/Ambiente/Ferramentas/claude-to-premier" && last=$(stat -c %Y output/transcricao.srt 2>/dev/null || echo ""); while true; do sleep 4; if [ -f output/transcricao.srt ]; then cur=$(stat -c %Y output/transcricao.srt 2>/dev/null); if [ -n "$cur" ] && [ "$cur" != "$last" ]; then sleep 3; chk=$(stat -c %Y output/transcricao.srt 2>/dev/null); if [ "$chk" = "$cur" ]; then echo "NOVA_TRANSCRICAO mtime=$cur arquivo=output/transcricao.srt"; last="$cur"; fi; fi; fi; done
+     cd "C:/Users/user/Documents/Ambiente/Ferramentas/claude-to-premier" && last=$(stat -c %Y output/transcricao.srt 2>/dev/null || echo ""); while true; do sleep 4; mkdir -p output; touch output/.ia_heartbeat; if [ -f output/transcricao.srt ]; then cur=$(stat -c %Y output/transcricao.srt 2>/dev/null); if [ -n "$cur" ] && [ "$cur" != "$last" ]; then sleep 3; chk=$(stat -c %Y output/transcricao.srt 2>/dev/null); if [ "$chk" = "$cur" ]; then echo "NOVA_TRANSCRICAO mtime=$cur arquivo=output/transcricao.srt"; last="$cur"; fi; fi; fi; done
      ```
 3. Quando o monitor emitir um evento, leia `output/transcricao.srt`, escreva a
    análise em `output/analise.json` (schema abaixo) e avise o usuário no chat
