@@ -4,9 +4,6 @@ models/*.bin
 # Binarios da CLI do Tailwind (~100 MB cada) — baixar via /setup
 web/tools/*
 
-# CSS compilado pelo Tailwind — gerado a partir de web/src/input.css
-web/tailwind.css
-
 # Saidas geradas (timeline, preview, transcricao, analise)
 output/*
 
@@ -22,3 +19,6 @@ remotion/node_modules/
 
 # Build artifacts do Remotion
 remotion/out/
+
+# Build do frontend React
+web/dist/

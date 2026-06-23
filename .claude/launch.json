@@ -2,10 +2,17 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "painel",
+      "name": "painel-backend",
       "runtimeExecutable": "python",
       "runtimeArgs": ["server.py", "--video", "samples/fala_teste.mp4", "--port", "8765"],
       "port": 8765
+    },
+    {
+      "name": "painel-frontend",
+      "cwd": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173
     }
   ]
 }

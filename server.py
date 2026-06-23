@@ -624,16 +624,22 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         if path in ("/", "/index.html"):
-            self._serve_static(os.path.join(BASE, "web", "index.html"),
+            self._serve_static(os.path.join(BASE, "web", "dist", "index.html"),
                                "text/html; charset=utf-8")
-        elif path == "/tailwind.css":
-            self._serve_static(os.path.join(BASE, "web", "tailwind.css"),
-                               "text/css; charset=utf-8")
         elif path == "/media":
             self._serve_media()
         elif path.startswith("/motion/"):
             fname = os.path.basename(path)  # so o nome -- sem permitir sair da pasta motion/
             self._serve_motion(os.path.join(OUTDIR, "motion", fname))
+        elif path.startswith("/assets/"):
+            fname = os.path.basename(path)
+            fpath = os.path.join(BASE, "web", "dist", "assets", fname)
+            if os.path.isfile(fpath):
+                ext = fname.rsplit(".", 1)[-1] if "." in fname else ""
+                mime = {"js": "application/javascript", "css": "text/css", "woff2": "font/woff2", "woff": "font/woff", "png": "image/png", "svg": "image/svg+xml"}.get(ext, "application/octet-stream")
+                self._serve_static(fpath, mime)
+            else:
+                self.send_error(404)
         elif path == "/api/analysis":
             self._json(read_analysis())
         elif path == "/api/info":

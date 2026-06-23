@@ -45,3 +45,9 @@ body {
 .seg.has-issue .x { border-left: 2px solid var(--color-accent-soft); padding-left: 6px; }
 .seg.cut .x { text-decoration: line-through; opacity: .5; }
 .cut-btn.on { background-color: var(--color-cut); border-color: var(--color-cut); color: var(--color-text-primary); }
+
+/* === React: estilos que antes estavam no index.html === */
+.tab-btn { color: var(--color-text-secondary); }
+.tab-btn:hover { color: var(--color-text-primary); }
+.tab-active { background-color: var(--color-bg-secondary); color: var(--color-text-primary) !important; }
+.motion-row + .motion-row { border-top: 1px solid var(--color-bg); }
