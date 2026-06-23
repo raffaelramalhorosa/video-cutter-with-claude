@@ -8,6 +8,7 @@ export default function VideoPlayer() {
   const skipMode = useAppStore((s) => s.skipMode)
   const keeps = useAppStore((s) => s.keeps)
   const setSkipMode = useAppStore((s) => s.setSkipMode)
+  const videoTs = useAppStore((s) => s.videoTs)
 
   useEffect(() => {
     playerRef.current = ref.current
@@ -36,7 +37,7 @@ export default function VideoPlayer() {
       id="player"
       controls
       preload="metadata"
-      src="/media"
+      src={`/media?ts=${videoTs}`}
       className="w-full max-h-[360px] bg-black rounded-md block"
     />
   )

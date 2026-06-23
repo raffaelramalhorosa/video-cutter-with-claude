@@ -104,6 +104,7 @@ def timebase_ntsc(fps_num, fps_den, fps):
 def detect_silence(ffmpeg, path, threshold_db, min_silence):
     """Roda silencedetect e devolve lista de (inicio, fim) dos silencios, em segundos."""
     cmd = [ffmpeg, "-hide_banner", "-nostats", "-i", path,
+           "-vn", "-ac", "1", "-ar", "8000",
            "-af", f"silencedetect=noise={threshold_db}dB:d={min_silence}",
            "-f", "null", "-"]
     raw = subprocess.run(cmd, capture_output=True, text=True,

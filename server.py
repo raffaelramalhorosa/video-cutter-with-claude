@@ -41,8 +41,8 @@ _lock = threading.Lock()
 
 
 def get_silences(threshold, min_silence):
-    """Roda o silencedetect (custoso) so quando threshold/min_silence mudam."""
-    key = (round(threshold, 3), round(min_silence, 3))
+    """Roda o silencedetect (custoso) so quando threshold/min_silence/video mudam."""
+    key = (VIDEO, round(threshold, 3), round(min_silence, 3))
     with _lock:
         if key in _cache:
             return _cache[key]

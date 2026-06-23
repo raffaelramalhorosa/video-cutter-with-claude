@@ -13,6 +13,7 @@ interface AppState {
   mediaMeta: MediaMeta | null
   videoLabel: string
   videoDir: string
+  videoTs: number
 
   // cortes
   keeps: Keep[]
@@ -21,6 +22,7 @@ interface AppState {
 
   // reprodução
   skipMode: boolean
+  detecting: boolean
 
   // transcrição + análise
   transSegs: TranscriptSegment[]
@@ -76,10 +78,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   mediaMeta: null,
   videoLabel: '',
   videoDir: '',
+  videoTs: 0,
   keeps: [],
   manualCuts: [],
   params: { threshold: -30, min_silence: 0.5, margin: 0.15, min_clip: 0.3 },
   skipMode: false,
+  detecting: false,
   transSegs: [],
   transLang: 'pt',
   analysis: null,
@@ -113,11 +117,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   detect: async () => {
     const { params, manualCuts } = get()
+    set({ detecting: true })
     try {
       const d = await apiDetect({ ...params, manual_cuts: manualCuts })
-      set({ keeps: d.keeps })
+      set({ keeps: d.keeps, detecting: false })
     } catch (e) {
-      set({ status: { msg: 'Erro ao calcular cortes.', ok: false } })
+      set({ detecting: false, status: { msg: 'Erro ao calcular cortes.', ok: false } })
     }
   },
 
@@ -133,6 +138,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         mediaMeta: d.media,
         videoLabel: d.video,
         videoDir: d.video_dir ?? '',
+        videoTs: Date.now(),
         manualCuts: [],
         keeps: [],
         transSegs: [],
@@ -154,7 +160,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       transSegs: [],
       analysis: null,
       motionState: {},
-      transStatus: { msg: '', ok: false },
+      transStatus: { msg: 'Transcrevendo com Whisper… pode demorar alguns minutos.', ok: false },
     })
     try {
       const d = await apiTranscribe({ language: transLang })

@@ -7,7 +7,7 @@ import { apiPreview } from '../../api/client'
 import { playerRef } from '../player/VideoPlayer'
 
 export default function TabRevisao() {
-  const { keeps, skipMode, setSkipMode, status, params, manualCuts } = useAppStore()
+  const { keeps, skipMode, setSkipMode, status, params, manualCuts, detecting } = useAppStore()
 
   const handleSkip = () => {
     if (skipMode) { playerRef.current?.pause(); setSkipMode(false); return }
@@ -32,6 +32,12 @@ export default function TabRevisao() {
 
   return (
     <div>
+      {detecting && (
+        <div className="flex items-center gap-3 bg-bg-secondary rounded-md px-4 py-3 mb-4">
+          <span className="w-4 h-4 rounded-full border-2 border-text-muted/30 border-t-accent animate-spin shrink-0" />
+          <span className="text-text-secondary text-[13px]">Calculando cortes… pode levar alguns minutos em vídeos longos.</span>
+        </div>
+      )}
       <div className="bg-bg-secondary rounded-md p-4 mb-4">
         <VideoPlayer />
         <Timeline />

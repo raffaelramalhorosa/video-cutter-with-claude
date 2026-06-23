@@ -32,7 +32,7 @@ export default function ParamsPanel() {
             <span className="font-medium">Silêncio mínimo</span>
             <span className="text-text-secondary tabular-nums">{params.min_silence.toFixed(1)} s</span>
           </label>
-          <input type="range" min="0.1" max="3" step="0.1" value={params.min_silence}
+          <input type="range" min="0.1" max="10" step="0.1" value={params.min_silence}
             onChange={(e) => schedule({ min_silence: parseFloat(e.target.value) })}
             className="w-full accent-accent" />
           <div className="text-text-secondary text-xs mt-1">Quão longa a pausa precisa ser para virar corte. Evita cortar respiros.</div>
