@@ -89,7 +89,5 @@ export const apiMotionRender = (params: {
   staggerSpeed: number
 }) => post<{ ok: boolean; path: string; error?: string }>('/api/motion/render', params)
 
-export const motionPreviewUrl = (i: number, ts: number) => `/motion/${i}.preview.mp4?ts=${ts}`
-
 export const keeps2ManualCuts = (keeps: Keep[]): [number, number][] =>
   keeps.map((k) => [k.in, k.out])

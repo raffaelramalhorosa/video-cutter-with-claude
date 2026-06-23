@@ -14,7 +14,7 @@ export type MotionTextProps = {
   width: number;
   height: number;
   position: "bottom" | "center" | "top";
-  animationStyle: "spring" | "typewriter" | "highlight" | "lateral" | "punch";
+  animationStyle: "spring" | "typewriter" | "highlight" | "lateral" | "punch" | "hq";
   entryDirection: "bottom" | "top" | "left" | "right";
   accentWord: string;
   accentColor: "amber" | "white" | "red";
@@ -73,7 +73,7 @@ function hexToRgb(hex: string): string {
 // --------------------------------------------------------------------------
 function animSpring(
   frame: number, fps: number, i: number,
-  width: number, height: number,
+  height: number,
   entryDirection: MotionTextProps["entryDirection"],
   staggerSpeed: number,
 ): { transform: string; opacity: number } {
@@ -204,6 +204,28 @@ function animPunch(
 }
 
 // --------------------------------------------------------------------------
+// HQ — quadrinhos: entrada grande + rotação alternada, fundo estampado por palavra
+// Assinatura: impacto de quadrinhos, cada palavra "bate" e torce antes de assentar
+// --------------------------------------------------------------------------
+function animHQ(
+  frame: number, fps: number, i: number,
+  staggerSpeed: number,
+): { transform: string; opacity: number } {
+  const delay = i * 7 * staggerSpeed;
+  const enter = spring({ frame: frame - delay, fps,
+    config: { damping: 6, mass: 0.9, stiffness: 320 } });
+
+  // Escala: entra grandão (2.5×) e assenta com overshoot abaixo de 1
+  const scale = interpolate(enter, [0, 1], [2.5, 1], { extrapolateRight: "clamp" });
+  // Rotação: palavras alternadas entram de lados opostos (±14°)
+  const rotStart = i % 2 === 0 ? 14 : -14;
+  const rot = interpolate(enter, [0, 1], [rotStart, 0], { extrapolateRight: "clamp" });
+  const opacity = interpolate(enter, [0, 1], [0, 1], { extrapolateRight: "clamp" });
+
+  return { transform: `scale(${scale}) rotate(${rot}deg)`, opacity };
+}
+
+// --------------------------------------------------------------------------
 // Componente principal
 // --------------------------------------------------------------------------
 export const MotionText: React.FC<MotionTextProps> = (props) => {
@@ -255,8 +277,8 @@ export const MotionText: React.FC<MotionTextProps> = (props) => {
               padding: `${Math.round(fontSize * 0.06)}px ${Math.round(fontSize * 0.18)}px` }
           : {};
 
-        // Contorno — desligado quando há caixa de fundo ou highlight
-        const hasStroke = !showBgBox && animationStyle !== "highlight";
+        // Contorno — desligado quando há caixa de fundo, highlight ou hq
+        const hasStroke = !showBgBox && animationStyle !== "highlight" && animationStyle !== "hq";
         const strokeStyle: React.CSSProperties = hasStroke
           ? { WebkitTextStroke: `${strokeW}px black`, paintOrder: "stroke fill" }
           : {};
@@ -267,7 +289,7 @@ export const MotionText: React.FC<MotionTextProps> = (props) => {
         let extraStyle: React.CSSProperties = {};
 
         if (animationStyle === "spring") {
-          const a = animSpring(frame, fps, i, width, height, entryDirection, staggerSpeed);
+          const a = animSpring(frame, fps, i, height, entryDirection, staggerSpeed);
           transform = a.transform; opacity = a.opacity;
         } else if (animationStyle === "typewriter") {
           const a = animTypewriter(frame, fps, i, staggerSpeed);
@@ -281,10 +303,24 @@ export const MotionText: React.FC<MotionTextProps> = (props) => {
         } else if (animationStyle === "punch") {
           const a = animPunch(frame, fps, i, staggerSpeed);
           transform = a.transform; opacity = a.opacity;
+        } else if (animationStyle === "hq") {
+          const a = animHQ(frame, fps, i, staggerSpeed);
+          transform = a.transform; opacity = a.opacity;
+          // fundo estampado alternado: amarelo e preto por palavra
+          const hqBg   = i % 2 === 0 ? ACCENT_COLORS[accentColor] : "#111";
+          const hqText = i % 2 === 0 ? "#000" : ACCENT_COLORS[accentColor];
+          extraStyle = {
+            background: hqBg,
+            color: hqText,
+            borderRadius: `${Math.round(fontSize * 0.12)}px`,
+            padding: `${Math.round(fontSize * 0.05)}px ${Math.round(fontSize * 0.22)}px`,
+            WebkitTextStroke: `${Math.max(1, Math.round(strokeW * 0.5))}px rgba(0,0,0,0.4)`,
+            paintOrder: "stroke fill",
+          };
         }
 
-        // highlight define sua própria cor; os outros usam baseColor
-        const wordColor = animationStyle === "highlight" && extraStyle.color
+        // highlight e hq definem sua própria cor; os outros usam baseColor
+        const wordColor = (animationStyle === "highlight" || animationStyle === "hq") && extraStyle.color
           ? extraStyle.color
           : baseColor;
 
@@ -304,11 +340,13 @@ export const MotionText: React.FC<MotionTextProps> = (props) => {
               whiteSpace: "pre",
               ...strokeStyle,
               ...bgBoxStyle,
-              // extraStyle do highlight (background, borderRadius, padding) sobrepõe bgBoxStyle
-              ...(animationStyle === "highlight" ? {
-                background:   extraStyle.background,
-                borderRadius: extraStyle.borderRadius,
-                padding:      extraStyle.padding,
+              // extraStyle do highlight e hq sobrepõe bgBoxStyle
+              ...(animationStyle === "highlight" || animationStyle === "hq" ? {
+                background:        extraStyle.background,
+                borderRadius:      extraStyle.borderRadius,
+                padding:           extraStyle.padding,
+                WebkitTextStroke:  extraStyle.WebkitTextStroke,
+                paintOrder:        extraStyle.paintOrder,
               } : {}),
             }}
           >

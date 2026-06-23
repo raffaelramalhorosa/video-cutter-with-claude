@@ -1,6 +1,6 @@
 import { useAppStore } from '../../store/useAppStore'
 import type { MotionItem } from '../../types'
-import { motionPreviewUrl } from '../../api/client'
+import MotionPlayerPreview from './MotionPlayerPreview'
 
 function toMMSS(s: number) {
   s = Math.max(0, Math.round(s))
@@ -11,13 +11,33 @@ function toMMSS(s: number) {
 
 interface Props { index: number; item: MotionItem }
 
-const STYLE_OPTS = [['spring','Spring'],['typewriter','Typewriter'],['highlight','Highlight'],['lateral','Lateral'],['punch','Punch-in']]
+const STYLE_OPTS = [['spring','Spring'],['typewriter','Typewriter'],['highlight','Highlight'],['lateral','Lateral'],['punch','Punch-in'],['hq','HQ']]
 const POS_OPTS   = [['bottom','Inferior'],['center','Centro'],['top','Superior']]
 const DIR_OPTS   = [['bottom','↑ Baixo'],['top','↓ Cima'],['left','→ Esq.'],['right','← Dir.']]
 const COLOR_OPTS = [['amber','Âmbar'],['white','Branco'],['red','Vermelho']]
 
+function openInStudio(item: MotionItem, st: ReturnType<typeof useAppStore.getState>['motionState'][number], meta: ReturnType<typeof useAppStore.getState>['mediaMeta']) {
+  const props = {
+    text: st.capsMode ? item.frase.toUpperCase() : item.frase,
+    durationInSeconds: Math.max(0.5, item.end_s - item.start_s),
+    fps: meta?.fps ?? 30,
+    width: meta?.width ?? 1080,
+    height: meta?.height ?? 1920,
+    position: st.position,
+    animationStyle: st.animationStyle,
+    entryDirection: st.entryDirection,
+    accentWord: st.accentWord,
+    accentColor: st.accentColor,
+    showBgBox: st.showBgBox,
+    capsMode: st.capsMode,
+    staggerSpeed: st.staggerSpeed,
+  }
+  const encoded = encodeURIComponent(JSON.stringify(props))
+  window.open(`http://localhost:3000/MotionText?inputProps=${encoded}`, '_blank')
+}
+
 export default function MotionRow({ index, item }: Props) {
-  const { motionState, setMotionState, generateMotion } = useAppStore()
+  const { motionState, setMotionState, generateMotion, mediaMeta } = useAppStore()
   const st = motionState[index] ?? {
     generating: false, path: undefined, included: true, ts: 0,
     position: 'bottom', animationStyle: 'spring', entryDirection: 'bottom',
@@ -95,24 +115,19 @@ export default function MotionRow({ index, item }: Props) {
           </div>
         </div>
         <div className="w-[160px] shrink-0 flex flex-col gap-1.5">
-          {st.generating ? (
-            <div className="w-full aspect-[9/16] bg-bg rounded-md flex flex-col items-center justify-center gap-2 border border-text-muted/10">
-              <span className="w-6 h-6 rounded-full border-2 border-text-muted/20 border-t-accent animate-spin" />
-              <span className="text-text-muted text-[11px]">Gerando…</span>
-            </div>
-          ) : st.path ? (
-            <>
-              <video src={motionPreviewUrl(index, st.ts ?? 0)} controls playsInline className="w-full aspect-[9/16] bg-black rounded-md object-contain" />
-              <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer justify-center">
-                <input type="checkbox" checked={st.included} onChange={(e) => setMotionState(index, { included: e.target.checked })} className="accent-accent" />
-                Incluir na exportação
-              </label>
-            </>
-          ) : (
-            <div className="w-full aspect-[9/16] bg-bg rounded-md flex items-center justify-center border border-dashed border-text-muted/20">
-              <span className="text-text-muted text-[11px] text-center px-3">Preview<br />após gerar</span>
-            </div>
-          )}
+          {/* preview AO VIVO (mesmo componente do .mov) — atualiza ao mexer nos controles */}
+          <MotionPlayerPreview item={item} st={st} />
+          <label className={`flex items-center gap-1.5 text-xs justify-center ${st.path ? 'text-text-secondary cursor-pointer' : 'text-text-muted cursor-not-allowed'}`}>
+            <input
+              type="checkbox" checked={st.included} disabled={!st.path}
+              onChange={(e) => setMotionState(index, { included: e.target.checked })}
+              className="accent-accent"
+            />
+            Incluir na exportação
+          </label>
+          <span className="text-[10px] text-text-muted text-center leading-tight">
+            {st.generating ? 'Gerando .mov…' : st.path ? '✓ clipe .mov pronto' : 'Gere o clipe para incluir no Premiere'}
+          </span>
         </div>
       </div>
     </div>

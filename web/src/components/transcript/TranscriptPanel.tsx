@@ -1,23 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../store/useAppStore'
 import TranscriptSegment from './TranscriptSegment'
-import { apiExportSrt, apiIaStatus } from '../../api/client'
+import { apiExportSrt } from '../../api/client'
 import { playerRef } from '../player/VideoPlayer'
 
 export default function TranscriptPanel() {
   const { transSegs, transOverlay, params, manualCuts, transLang, setTransLang, transcribe, analysis, transStatus, applyAllCuts } = useAppStore()
-
-  // indica se a "escuta" da IA está ativa (heartbeat recente do Monitor no backend)
-  const [iaConnected, setIaConnected] = useState<boolean | null>(null)
-  useEffect(() => {
-    let alive = true
-    const check = () => apiIaStatus()
-      .then((d) => { if (alive) setIaConnected(d.connected) })
-      .catch(() => { if (alive) setIaConnected(false) })
-    check()
-    const timer = setInterval(check, 6000)
-    return () => { alive = false; clearInterval(timer) }
-  }, [])
 
   // acompanha o tempo do vídeo para brilhar o segmento que está passando agora
   const [playingIndex, setPlayingIndex] = useState(-1)
@@ -51,22 +39,14 @@ export default function TranscriptPanel() {
   const segMap = new Map((analysis?.segments ?? []).map((s) => [s.index, s]))
 
   return (
-    <div className="bg-bg-secondary rounded-md p-4 flex flex-col max-h-none min-[900px]:max-h-[calc(100vh-40px)]">
+    <div className="p-4 flex flex-col h-full">
       <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-        <div className="flex items-center gap-3">
+        <span className="flex items-center gap-2">
           <p className="text-text-secondary text-xs uppercase tracking-wide m-0">Transcrição</p>
-          {iaConnected !== null && (
-            <span
-              title={iaConnected
-                ? 'A escuta da IA está ativa — a análise sai automaticamente ao transcrever.'
-                : 'A escuta da IA está desligada. Abra o Claude e rode /iniciar para a análise automática.'}
-              className={`flex items-center gap-1.5 text-[11px] ${iaConnected ? 'text-keep' : 'text-text-muted'}`}
-            >
-              <span className={`w-2 h-2 rounded-full ${iaConnected ? 'bg-keep animate-pulse' : 'bg-text-muted'}`} />
-              {iaConnected ? 'IA conectada' : 'IA desconectada'}
-            </span>
+          {(transStatus.msg?.includes('Transcrevendo') || transStatus.msg?.includes('gerando análise')) && (
+            <span className="w-3 h-3 rounded-full border-2 border-text-muted/30 border-t-accent animate-spin shrink-0" />
           )}
-        </div>
+        </span>
         <div className="flex gap-2 items-center">
           <select
             value={transLang}
@@ -86,7 +66,7 @@ export default function TranscriptPanel() {
         </div>
       </div>
 
-      <div className="transcript flex-1 min-h-0 max-h-[60vh] min-[900px]:max-h-none overflow-y-auto">
+      <div className="transcript flex-1 min-h-0 overflow-y-auto">
         {transSegs.length === 0 && (
           <div className="text-text-secondary text-[13px] py-2">
             Carregue um vídeo em "Abrir vídeo" para transcrever automaticamente.
@@ -124,10 +104,7 @@ export default function TranscriptPanel() {
 
       <div className="flex items-center justify-between gap-3 pt-2.5 mt-2 flex-wrap">
         <span className={`flex items-center gap-2 text-xs break-all ${transStatus.ok ? 'text-keep' : 'text-text-secondary'}`}>
-          {(transStatus.msg?.includes('Transcrevendo') || transStatus.msg?.includes('gerando análise')) && (
-            <span className="w-3 h-3 rounded-full border-2 border-text-muted/30 border-t-accent animate-spin shrink-0" />
-          )}
-          {transStatus.msg}
+          {!transStatus.msg?.includes('Transcrevendo') && transStatus.msg}
         </span>
         <span className="flex gap-2 flex-wrap">
           <button

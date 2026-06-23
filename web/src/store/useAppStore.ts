@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Keep, Params, TranscriptSegment, Analysis, MotionEntry, ExportOpts, MediaMeta, SegOverlay } from '../types'
+import type { Keep, Params, TranscriptSegment, Analysis, MotionEntry, ExportOpts, MediaMeta, SegOverlay, CaptionBlock, CaptionStyle, CustomFont } from '../types'
 import {
   apiInfo, apiDetect, apiExport, apiAnalysis, apiTranscribe,
   apiExportSrt, apiPick, apiMotionRender,
@@ -27,10 +27,14 @@ interface AppState {
   // transcrição + análise
   transSegs: TranscriptSegment[]
   transOverlay: SegOverlay[]
+  captionBlocks: CaptionBlock[]
   transLang: string
   analysis: Analysis | null
   analysisPollTimer: ReturnType<typeof setInterval> | null
   motionState: Record<number, MotionEntry>
+
+  // estilo global da legenda
+  captionStyle: CaptionStyle
 
   // UI
   activeTab: 'revisao' | 'motion'
@@ -51,6 +55,13 @@ interface AppState {
   toggleManualCut: (start: number, end: number) => void
   applyAllCuts: (indices: number[]) => void
   updateTransSeg: (i: number, text: string) => void
+  initCaptionBlocks: () => void
+  splitCaptionBlock: (blockId: string, afterWordIndex: number) => void
+  mergeCaptionBlock: (blockId: string) => void
+  setCaptionBlockStyle: (blockId: string, patch: { effect?: string; font?: string }) => void
+  toggleCaptionBlockWord: (blockId: string, wordIndex: number) => void
+  setCaptionStyle: (patch: Partial<CaptionStyle>) => void
+  addCustomFont: (font: CustomFont) => void
   setMotionState: (i: number, p: Partial<MotionEntry>) => void
   generateMotion: (i: number) => Promise<void>
   setSkipMode: (on: boolean) => void
@@ -86,10 +97,23 @@ export const useAppStore = create<AppState>((set, get) => ({
   detecting: false,
   transSegs: [],
   transOverlay: [],
+  captionBlocks: [],
   transLang: 'pt',
   analysis: null,
   analysisPollTimer: null,
   motionState: {},
+  captionStyle: {
+    on: true,
+    bg: true,
+    wordsPerCaption: 0,
+    effect: 'fade',
+    font: 'Inter',
+    color: '#F2F3F5',
+    strokeColor: '#000000',
+    strokeWidth: 0,
+    yPct: 88,
+    customFonts: [],
+  },
   activeTab: 'revisao',
   status: { msg: '', ok: false },
   transStatus: { msg: '', ok: false },
@@ -111,6 +135,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
       })
       await get().detect()
+      // carrega uma análise da IA já existente (sobrevive a reload, sem precisar re-transcrever)
+      try {
+        const a = await apiAnalysis()
+        if (a.available) get().applyAnalysis(a)
+      } catch (_) { /* sem análise ainda — tudo bem */ }
     } catch (e) {
       set({ status: { msg: 'Erro ao carregar informações do vídeo.', ok: false } })
     }
@@ -145,6 +174,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         keeps: [],
         transSegs: [],
         transOverlay: [],
+        captionBlocks: [],
         analysis: null,
         motionState: {},
         status: { msg: 'Vídeo carregado: ' + d.video, ok: true },
@@ -179,6 +209,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           ok: false,
         },
       })
+      get().initCaptionBlocks()
       await get().detect()  // classifica a transcricao contra o corte atual
       get().startAnalysisPoll()  // aplica a analise sozinho assim que o Claude grava analise.json
     } catch (e) {
@@ -281,6 +312,71 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { transSegs: segs }
     })
   },
+
+  initCaptionBlocks: () => {
+    const blocks: CaptionBlock[] = get().transSegs.map((s, i) => ({
+      id: `seg-${i}`,
+      segIndex: i,
+      start: s.start,
+      end: s.end,
+      text: s.text,
+    }))
+    set({ captionBlocks: blocks })
+  },
+
+  splitCaptionBlock: (blockId, afterWordIndex) => {
+    const blocks = get().captionBlocks
+    const idx = blocks.findIndex((b) => b.id === blockId)
+    if (idx === -1) return
+    const b = blocks[idx]
+    const words = b.text.trim().split(/\s+/)
+    if (afterWordIndex < 1 || afterWordIndex >= words.length) return
+    const splitT = b.start + (afterWordIndex / words.length) * (b.end - b.start)
+    const bA: CaptionBlock = { ...b, id: `${b.id}-L${afterWordIndex}`, text: words.slice(0, afterWordIndex).join(' '), end: splitT }
+    const bB: CaptionBlock = { ...b, id: `${b.id}-R${afterWordIndex}`, text: words.slice(afterWordIndex).join(' '), start: splitT }
+    const next = [...blocks]
+    next.splice(idx, 1, bA, bB)
+    set({ captionBlocks: next })
+  },
+
+  mergeCaptionBlock: (blockId) => {
+    const blocks = get().captionBlocks
+    const idx = blocks.findIndex((b) => b.id === blockId)
+    if (idx === -1 || idx >= blocks.length - 1) return
+    const a = blocks[idx], b = blocks[idx + 1]
+    if (a.segIndex !== b.segIndex) return  // só merge dentro do mesmo segmento original
+    const merged: CaptionBlock = { ...a, end: b.end, text: `${a.text} ${b.text}` }
+    const next = [...blocks]
+    next.splice(idx, 2, merged)
+    set({ captionBlocks: next })
+  },
+
+  setCaptionBlockStyle: (blockId, patch) => {
+    set((s) => ({
+      captionBlocks: s.captionBlocks.map((b) => b.id === blockId ? { ...b, ...patch } : b),
+    }))
+  },
+
+  toggleCaptionBlockWord: (blockId, wordIndex) => {
+    set((s) => ({
+      captionBlocks: s.captionBlocks.map((b) => {
+        if (b.id !== blockId) return b
+        const removed = new Set(b.removedWords ?? [])
+        if (removed.has(wordIndex)) removed.delete(wordIndex)
+        else removed.add(wordIndex)
+        return { ...b, removedWords: [...removed] }
+      }),
+    }))
+  },
+
+  setCaptionStyle: (patch) => set((s) => ({ captionStyle: { ...s.captionStyle, ...patch } })),
+
+  addCustomFont: (font) => set((s) => ({
+    captionStyle: {
+      ...s.captionStyle,
+      customFonts: [...s.captionStyle.customFonts, font],
+    },
+  })),
 
   setMotionState: (i, p) => {
     set((s) => ({

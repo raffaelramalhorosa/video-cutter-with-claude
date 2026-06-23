@@ -444,7 +444,7 @@ def render_motion(params):
 
     # Coleta e valida todas as opcoes de personalizacao vindas do painel
     _VALID_POSITIONS  = {"bottom", "center", "top"}
-    _VALID_STYLES     = {"spring", "typewriter", "highlight", "lateral", "punch"}
+    _VALID_STYLES     = {"spring", "typewriter", "highlight", "lateral", "punch", "hq"}
     _VALID_DIRECTIONS = {"bottom", "top", "left", "right"}
     _VALID_COLORS     = {"amber", "white", "red"}
 

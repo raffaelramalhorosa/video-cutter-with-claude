@@ -58,3 +58,52 @@ body {
 .tab-btn:hover { color: var(--color-text-primary); }
 .tab-active { background-color: var(--color-bg-secondary); color: var(--color-text-primary) !important; }
 .motion-row + .motion-row { border-top: 1px solid var(--color-bg); }
+
+/* animação do painel de parâmetros (overlay, slide de cima para baixo) */
+@keyframes params-slide-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.params-overlay-panel {
+  animation: params-slide-in 0.18s ease;
+}
+
+/* animações de entrada/saída da legenda */
+@keyframes cap-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes cap-slide-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes cap-slide-down {
+  from { opacity: 0; transform: translateY(-14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes cap-pop {
+  from { opacity: 0; transform: scale(0.65); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes cap-bounce {
+  0%   { opacity: 0; transform: scale(0.6); }
+  60%  { opacity: 1; transform: scale(1.12); }
+  80%  { transform: scale(0.95); }
+  100% { transform: scale(1); }
+}
+
+/* coreografia: palavra 1 (aparece no lugar) */
+@keyframes cap-coro-first {
+  from { opacity: 0; transform: scale(0.75) translateY(3px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0);   }
+}
+/* coreografia: palavra 2 (desliza de dentro da 1ª para a direita) */
+@keyframes cap-coro-mid {
+  from { opacity: 0; transform: translateX(-2.6em); }
+  to   { opacity: 1; transform: translateX(0);      }
+}
+/* coreografia: última (sobe de baixo das anteriores) */
+@keyframes cap-coro-last {
+  from { opacity: 0; transform: translateY(1.1em); }
+  to   { opacity: 1; transform: translateY(0);     }
+}
