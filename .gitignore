@@ -41,3 +41,5 @@ web/tailwind.css
 
 # Arquivo lixo (redirecionamento acidental para o device 'nul' do Windows)
 /nul
+.gemini_key
+.env

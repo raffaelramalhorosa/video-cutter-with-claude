@@ -20,11 +20,76 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE)
 import silence_cut as core  # noqa: E402  (mesma pasta)
+
+# ---------------------------------------------------------------------------
+# Gemini API (analise automatica apos transcricao)
+# ---------------------------------------------------------------------------
+def _load_gemini_key():
+    key = os.environ.get("GEMINI_API_KEY", "")
+    if not key:
+        key_file = os.path.join(BASE, ".gemini_key")
+        if os.path.isfile(key_file):
+            key = open(key_file).read().strip()
+    return key
+
+GEMINI_MODEL = "gemini-2.5-flash"
+
+def _analyze_with_gemini(srt_text: str) -> dict:
+    """Envia o SRT para o Gemini Flash e retorna o dict de analise."""
+    api_key = _load_gemini_key()
+    if not api_key:
+        raise RuntimeError("Chave Gemini nao configurada (.gemini_key ou GEMINI_API_KEY)")
+
+    prompt_file = os.path.join(BASE, ".claude", "analyze_transcript_prompt.md")
+    base_prompt = open(prompt_file, encoding="utf-8").read() if os.path.isfile(prompt_file) else ""
+
+    prompt = (
+        f"{base_prompt}\n\n"
+        "TRANSCRIÇÃO SRT:\n"
+        f"{srt_text}\n\n"
+        "Retorne SOMENTE o JSON, sem markdown, sem texto adicional."
+    )
+
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{GEMINI_MODEL}:generateContent?key={api_key}"
+    )
+    body = json.dumps({
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"},
+    }).encode()
+
+    req = urllib.request.Request(url, data=body,
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=90) as resp:
+        result = json.loads(resp.read())
+
+    raw = result["candidates"][0]["content"]["parts"][0]["text"]
+    # remove markdown code fences se presentes
+    raw = re.sub(r"^```(?:json)?\s*", "", raw.strip())
+    raw = re.sub(r"\s*```$", "", raw)
+    return json.loads(raw)
+
+
+def _auto_analyze(srt_path: str) -> None:
+    """Dispara analise Gemini em background e salva analise.json."""
+    try:
+        srt_text = open(srt_path, encoding="utf-8").read()
+        data = _analyze_with_gemini(srt_text)
+        out = os.path.join(OUTDIR, "analise.json")
+        os.makedirs(OUTDIR, exist_ok=True)
+        with open(out, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        print(f"[gemini] analise salva em {out}", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"[gemini] erro na analise automatica: {e}", flush=True)
 
 # ---------------------------------------------------------------------------
 # Estado global do servidor
@@ -409,6 +474,10 @@ def transcribe(params):
         os.remove(os.path.join(OUTDIR, "analise.json"))
     except OSError:
         pass
+
+    # dispara analise Gemini em background (nao bloqueia a resposta ao frontend)
+    if _load_gemini_key():
+        threading.Thread(target=_auto_analyze, args=(srt_path,), daemon=True).start()
 
     return {"ok": True, "segments": segs, "count": len(segs),
             "srt_path": srt_path, "txt_path": txt_path,
