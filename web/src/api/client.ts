@@ -92,5 +92,11 @@ export const apiMotionRender = (params: {
   staggerSpeed: number
 }) => post<{ ok: boolean; path: string; error?: string }>('/api/motion/render', params)
 
+export const apiChatPost = (params: { id: string; message: string }) =>
+  post<{ ok: boolean; id: string }>('/api/chat', params)
+
+export const apiChatResponse = () =>
+  get<{ available: boolean; id?: string; response?: string }>('/api/chat_response')
+
 export const keeps2ManualCuts = (keeps: Keep[]): [number, number][] =>
   keeps.map((k) => [k.in, k.out])

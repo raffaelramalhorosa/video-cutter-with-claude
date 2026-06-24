@@ -3,28 +3,49 @@
 O usuário final desta ferramenta não é técnico. Sempre que você (Claude) começar
 a trabalhar neste projeto nesta sessão, faça isto SEM perguntar:
 
-1. Rode `TaskList` (ou verifique tarefas em background) procurando um monitor
-   chamado algo como "Detecta nova transcrição em output/transcricao.srt".
-2. Se ele NÃO estiver rodando, suba de novo com a tool `Monitor`:
+### Monitor A — Transcrição (análise automática)
+
+1. Rode `TaskList` procurando um monitor com a descrição
+   "Detecta nova transcrição em output/transcricao.srt".
+2. Se NÃO estiver rodando, suba com a tool `Monitor`:
    - description: "Detecta nova transcrição em output/transcricao.srt"
    - persistent: true
-   - command (Bash, Git Bash/POSIX) — DOIS pontos importantes:
-     a) inicializar `last` com o mtime atual do arquivo ANTES do loop, senão
-        dispara um falso positivo na primeira volta com a transcrição que já existia;
-     b) DEBOUNCE: a transcrição é escrita incrementalmente (o mtime muda várias
-        vezes durante a gravação). Sem debounce, o monitor dispara dezenas de vezes
-        e inunda o chat. Por isso, ao detectar mudança, espere 3s e só emita o
-        evento se o mtime tiver ficado ESTÁVEL (escrita terminou);
-     c) HEARTBEAT: a cada ciclo o monitor toca `output/.ia_heartbeat`. O backend
-        (`/api/ia_status`) checa a idade desse arquivo para o painel mostrar
-        "IA conectada/desconectada". Se o comando do monitor mudar e parar de
-        tocar o heartbeat, o painel mostrará desconectado por engano.
+   - command (Bash/POSIX):
+     a) inicializar `last` com o mtime atual ANTES do loop (evita falso positivo);
+     b) DEBOUNCE 3s: a transcrição é escrita incrementalmente; só emite quando estável;
+     c) HEARTBEAT: toca `output/.ia_heartbeat` a cada ciclo (usado em `/api/ia_status`).
      ```
      cd "C:/Users/user/Documents/Ambiente/Ferramentas/claude-to-premier" && last=$(stat -c %Y output/transcricao.srt 2>/dev/null || echo ""); while true; do sleep 4; mkdir -p output; touch output/.ia_heartbeat; if [ -f output/transcricao.srt ]; then cur=$(stat -c %Y output/transcricao.srt 2>/dev/null); if [ -n "$cur" ] && [ "$cur" != "$last" ]; then sleep 3; chk=$(stat -c %Y output/transcricao.srt 2>/dev/null); if [ "$chk" = "$cur" ]; then echo "NOVA_TRANSCRICAO mtime=$cur arquivo=output/transcricao.srt"; last="$cur"; fi; fi; fi; done
      ```
-3. Quando o monitor emitir um evento, leia `output/transcricao.srt`, escreva a
-   análise em `output/analise.json` (schema abaixo) e avise o usuário no chat
-   que a análise está pronta — sem ele precisar pedir.
+3. Quando emitir `NOVA_TRANSCRICAO`: leia `output/transcricao.srt`, escreva a
+   análise em `output/analise.json` (schema abaixo) e avise o usuário no chat.
+
+### Monitor B — Chat do colaborador
+
+1. Rode `TaskList` procurando um monitor com a descrição
+   "Detecta nova mensagem de chat em output/chat_request.json".
+2. Se NÃO estiver rodando, suba com a tool `Monitor`:
+   - description: "Detecta nova mensagem de chat em output/chat_request.json"
+   - persistent: true
+   - command (Bash/POSIX) — sem debounce (chat é uma escrita atômica, não incremental):
+     ```
+     cd "C:/Users/user/Documents/Ambiente/Ferramentas/claude-to-premier" && last=$(stat -c %Y output/chat_request.json 2>/dev/null || echo ""); while true; do sleep 2; if [ -f output/chat_request.json ]; then cur=$(stat -c %Y output/chat_request.json 2>/dev/null); if [ -n "$cur" ] && [ "$cur" != "$last" ]; then echo "NOVA_CHAT_REQUEST file=output/chat_request.json"; last="$cur"; fi; fi; done
+     ```
+3. Quando emitir `NOVA_CHAT_REQUEST`: leia `output/chat_request.json`, processe
+   a mensagem do colaborador, e escreva a resposta em `output/chat_response.json`.
+
+   **IMPORTANTE — escrever `chat_response.json` com Python, NUNCA com Write tool:**
+   ```bash
+   python3 -c "
+   import json
+   data = {'id': 'REQ_ID_AQUI', 'response': 'resposta aqui'}
+   path = 'C:/Users/user/Documents/Ambiente/Ferramentas/claude-to-premier/output/chat_response.json'
+   with open(path, 'w', encoding='utf-8') as f:
+       json.dump(data, f, ensure_ascii=False)
+   "
+   ```
+   Motivo: a Write tool não escapa aspas duplas dentro de strings JSON, gerando
+   JSON inválido. `json.dumps()` do Python escapa corretamente.
 
 ## Por quê
 O usuário pediu para a análise de IA (coerência/português/cortes) ser feita

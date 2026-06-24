@@ -800,6 +800,18 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"available": False, "segments": [], "count": 0})
         elif path == "/api/ia_status":
             self._json(ia_status())
+        elif path == "/api/chat_response":
+            resp_path = os.path.join(OUTDIR, "chat_response.json")
+            if os.path.isfile(resp_path):
+                try:
+                    with open(resp_path, encoding="utf-8") as f:
+                        data = json.load(f)
+                    data["available"] = True
+                    self._json(data)
+                except (OSError, json.JSONDecodeError):
+                    self._json({"available": False})
+            else:
+                self._json({"available": False})
         elif path == "/api/info":
             self._json({
                 "video": os.path.basename(VIDEO),
@@ -839,6 +851,17 @@ class Handler(BaseHTTPRequestHandler):
             self._json(pick_file())
         elif path == "/api/motion/render":
             self._json(render_motion(params))
+        elif path == "/api/chat":
+            req_path = os.path.join(OUTDIR, "chat_request.json")
+            os.makedirs(OUTDIR, exist_ok=True)
+            data = {
+                "id": params.get("id", f"req_{int(time.time())}"),
+                "message": str(params.get("message", ""))[:2000],
+                "timestamp": int(time.time()),
+            }
+            with open(req_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+            self._json({"ok": True, "id": data["id"]})
         else:
             self.send_error(404)
 

@@ -4,6 +4,7 @@ import Navbar from './components/Navbar'
 import TabRevisao from './components/tabs/TabRevisao'
 import TabMotion from './components/tabs/TabMotion'
 import ExportModal from './components/modal/ExportModal'
+import ChatPanel from './components/chat/ChatPanel'
 
 export default function App() {
   const { init, activeTab } = useAppStore()
@@ -19,6 +20,7 @@ export default function App() {
         {activeTab === 'revisao' ? <TabRevisao /> : <TabMotion />}
       </main>
       <ExportModal />
+      <ChatPanel />
     </div>
   )
 }
