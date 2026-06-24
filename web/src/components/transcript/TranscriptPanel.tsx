@@ -80,17 +80,24 @@ export default function TranscriptPanel() {
         {analysis?.summary && (
           <div className="ai-summary text-[13px] bg-bg-secondary rounded-md px-2.5 py-2 mb-2.5">
             {analysis.summary}
-            {cutSegs.length > 0 && (
-              <>
-                <br />
-                <button
-                  onClick={() => applyAllCuts(cutSegs.map((s) => s.index))}
-                  className="ai-cuts-all mt-2 bg-transparent text-accent-soft border border-accent/50 rounded-sm px-2.5 py-1 text-xs hover:bg-accent/10"
-                >
-                  Remover todos os {cutSegs.length} trechos repetidos do vídeo
-                </button>
-              </>
-            )}
+            {cutSegs.length > 0 && (() => {
+              const allApplied = cutSegs.every((s) => {
+                const seg = transSegs[s.index]
+                return seg && manualCuts.some(([a, b]) => a === seg.start && b === seg.end)
+              })
+              return (
+                <>
+                  <br />
+                  <button
+                    disabled={allApplied}
+                    onClick={() => applyAllCuts(cutSegs.map((s) => s.index))}
+                    className={`ai-cuts-all mt-2 rounded-sm px-2.5 py-1 text-xs border ${allApplied ? 'bg-transparent text-text-muted border-text-muted/30 cursor-not-allowed opacity-60' : 'bg-transparent text-accent-soft border-accent/50 hover:bg-accent/10'}`}
+                  >
+                    {allApplied ? `✓ ${cutSegs.length} trechos removidos` : `Remover todos os ${cutSegs.length} trechos repetidos do vídeo`}
+                  </button>
+                </>
+              )
+            })()}
           </div>
         )}
         {transSegs.map((s, i) => (

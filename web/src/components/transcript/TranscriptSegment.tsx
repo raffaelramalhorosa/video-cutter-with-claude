@@ -1,4 +1,4 @@
-﻿import { useRef, useEffect } from 'react'
+﻿import { useRef, useEffect, useState } from 'react'
 import { useAppStore } from '../../store/useAppStore'
 import type { AnalysisSegment, SegOverlay } from '../../types'
 import { playerRef } from '../player/playerRef'
@@ -22,6 +22,7 @@ interface Props {
 export default function TranscriptSegment({ index, start, end, text, seg, overlay, active }: Props) {
   const { toggleManualCut, manualCuts, updateTransSeg, transSegs } = useAppStore()
   const xRef = useRef<HTMLSpanElement>(null)
+  const [suggestionApplied, setSuggestionApplied] = useState(false)
 
   const isCut = manualCuts.some(([s, e]) => s === transSegs[index]?.start && e === transSegs[index]?.end)
 
@@ -77,6 +78,7 @@ export default function TranscriptSegment({ index, start, end, text, seg, overla
     updateTransSeg(index, seg.suggestion)
     // o useEffect acima vai sincronizar o DOM quando o foco sair do campo
     if (xRef.current) xRef.current.textContent = seg.suggestion
+    setSuggestionApplied(true)
   }
 
   return (
@@ -117,10 +119,11 @@ export default function TranscriptSegment({ index, start, end, text, seg, overla
           ))}
           {seg.suggestion && (
             <button
+              disabled={suggestionApplied}
               onClick={applySuggestion}
-              className="apply mt-1 bg-transparent text-accent-soft border border-accent/50 rounded-sm px-2.5 py-1 text-xs hover:bg-accent/10"
+              className={`apply mt-1 rounded-sm px-2.5 py-1 text-xs border ${suggestionApplied ? 'bg-transparent text-text-muted border-text-muted/30 cursor-not-allowed opacity-60' : 'bg-transparent text-accent-soft border-accent/50 hover:bg-accent/10'}`}
             >
-              Aplicar sugestão
+              {suggestionApplied ? '✓ Sugestão aplicada' : 'Aplicar sugestão'}
             </button>
           )}
           {seg.cut && (
