@@ -42,6 +42,7 @@ interface AppState {
   status: Status
   transStatus: Status
   exportModalOpen: boolean
+  analysisPollTries: number
 
   // actions
   init: () => Promise<void>
@@ -124,6 +125,7 @@ export const useAppStore = create<AppState>()(
   status: { msg: '', ok: false },
   transStatus: { msg: '', ok: false },
   exportModalOpen: false,
+  analysisPollTries: 0,
 
   init: async () => {
     try {
@@ -239,6 +241,7 @@ export const useAppStore = create<AppState>()(
     let tries = 0
     const timer = setInterval(async () => {
       tries++
+      set({ analysisPollTries: tries })
       // ~10 min sem análise: para o poll e avisa (evita spinner girando para sempre)
       if (tries > 150) {
         get().stopAnalysisPoll()
@@ -261,7 +264,7 @@ export const useAppStore = create<AppState>()(
   stopAnalysisPoll: () => {
     const t = get().analysisPollTimer
     if (t) clearInterval(t)
-    set({ analysisPollTimer: null })
+    set({ analysisPollTimer: null, analysisPollTries: 0 })
   },
 
   applyAnalysis: (a: Analysis) => {

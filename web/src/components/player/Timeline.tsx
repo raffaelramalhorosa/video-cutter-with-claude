@@ -51,6 +51,8 @@ export default function Timeline() {
   zoomRef.current   = zoom
   offsetRef.current = offset
 
+  const prevDurRef = useRef(0)
+
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const selectedBlock = captionBlocks.find((b) => b.id === selectedId) ?? null
 
@@ -80,6 +82,15 @@ export default function Timeline() {
     zoomRef.current   = newZoom
     offsetRef.current = newOff
   }, [dur])
+
+  // auto-zoom ao carregar vídeo longo (> 3 min): mostra ~90s por vez para ter mais detalhe
+  useEffect(() => {
+    if (dur > 180 && prevDurRef.current === 0) {
+      const targetZoom = Math.min(MAX_ZOOM, Math.max(2, Math.round(dur / 90)))
+      applyZoom(targetZoom, 0)
+    }
+    prevDurRef.current = dur
+  }, [dur, applyZoom])
 
   // rAF: atualiza playhead e auto-scroll
   useEffect(() => {
@@ -309,7 +320,7 @@ export default function Timeline() {
         {/* lane 2: blocos de legenda (visível só com blocos carregados) */}
         {hasCaptions && (
           <div
-            className="relative h-7 bg-bg-secondary/40 border-t border-text-muted/10 cursor-pointer"
+            className="relative h-9 bg-bg-secondary/40 border-t border-text-muted/10 cursor-pointer"
             onClick={onCapLaneClick}
           >
             {captionBlocks.map((block) => {
@@ -325,6 +336,7 @@ export default function Timeline() {
                     position: 'absolute',
                     left: `${left}%`,
                     width: `${width}%`,
+                    minWidth: 8,
                     top: 3, bottom: 3,
                     background: blockColor(block),
                     borderRadius: 2,

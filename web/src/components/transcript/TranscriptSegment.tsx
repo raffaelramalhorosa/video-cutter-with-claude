@@ -37,13 +37,17 @@ export default function TranscriptSegment({ index, start, end, text, seg, overla
   // overlay reflete o resultado final do corte (silencio + manual_cuts) -- por isso
   // nao precisa de logica separada para "frase repetida" vs "silencio".
   if (overlay?.status === 'cut') {
+    // isCut = usuário marcou manualmente (ou via análise de IA); !isCut = silêncio automático
+    const isManual = isCut
     return (
-      <div className={`seg flex items-center gap-2 py-1 opacity-40 ${active ? 'playing' : ''}`}>
+      <div className={`seg flex items-center gap-2 py-1 ${isManual ? 'opacity-60' : 'opacity-35'} ${active ? 'playing' : ''}`}>
         <span className="t text-text-muted text-xs tabular-nums whitespace-nowrap min-w-[116px]">
           {fmt(start)} → {fmt(end)}
         </span>
-        <span className="text-text-muted text-[13px] line-through">🔇 {text}</span>
-        {seg?.cut && (
+        <span className={`text-[13px] line-through ${isManual ? 'text-cut' : 'text-text-muted'}`}>
+          {isManual ? '✂️' : '🔇'} {text}
+        </span>
+        {isManual && (
           <button
             onClick={() => toggleManualCut(start, end)}
             className="ml-auto px-2 py-0.5 text-xs rounded-sm border border-cut/60 text-danger-text hover:bg-cut/20 on"

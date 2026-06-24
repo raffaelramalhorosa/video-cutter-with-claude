@@ -5,7 +5,7 @@ import { apiExportSrt } from '../../api/client'
 import { playerRef } from '../player/playerRef'
 
 export default function TranscriptPanel() {
-  const { transSegs, transOverlay, params, manualCuts, transLang, setTransLang, transcribe, analysis, transStatus, applyAllCuts } = useAppStore()
+  const { transSegs, transOverlay, params, manualCuts, transLang, setTransLang, transcribe, analysis, transStatus, applyAllCuts, analysisPollTries } = useAppStore()
 
   // acompanha o tempo do vídeo para brilhar o segmento que está passando agora
   const [playingIndex, setPlayingIndex] = useState(-1)
@@ -41,10 +41,15 @@ export default function TranscriptPanel() {
   return (
     <div className="p-4 flex flex-col h-full">
       <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-        <span className="flex items-center gap-2">
+        <span className="flex items-center gap-2 flex-wrap">
           <p className="text-text-secondary text-xs uppercase tracking-wide m-0">Transcrição</p>
           {(transStatus.msg?.includes('Transcrevendo') || transStatus.msg?.includes('gerando análise')) && (
             <span className="w-3 h-3 rounded-full border-2 border-text-muted/30 border-t-accent animate-spin shrink-0" />
+          )}
+          {analysisPollTries > 0 && (
+            <span className="text-text-muted text-[11px] tabular-nums">
+              análise {analysisPollTries}/150 · ~{Math.max(1, Math.ceil((150 - analysisPollTries) * 4 / 60))} min
+            </span>
           )}
         </span>
         <div className="flex gap-2 items-center">
