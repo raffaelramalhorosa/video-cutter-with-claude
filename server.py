@@ -266,8 +266,41 @@ def export(params):
     return {"ok": True, "xml_path": xml_path, "json_path": json_path, "cuts": len(clips)}
 
 
+def _caption_style_to_ass(style: dict, preview_h: int) -> str:
+    """Converte CaptionStyle do frontend para force_style do filtro subtitles."""
+    def hex_to_ass(c: str) -> str:
+        c = (c or "").lstrip("#")
+        if len(c) == 6:
+            return f"&H00{c[4:6]}{c[2:4]}{c[0:2]}".upper()
+        return "&H00FFFFFF"
+
+    font_size = max(10, int(float(style.get("fontSize", 20)) * 2.0))
+    y_pct = float(style.get("yPct", 85)) / 100.0
+    color = hex_to_ass(style.get("color", "#ffffff"))
+    stroke = hex_to_ass(style.get("strokeColor", "#000000"))
+    stroke_w = int(style.get("strokeWidth", 2))
+
+    if y_pct < 0.35:
+        alignment, margin_v = 8, int(y_pct * preview_h)
+    elif y_pct > 0.65:
+        alignment, margin_v = 2, int((1.0 - y_pct) * preview_h)
+    else:
+        alignment, margin_v = 5, 0
+
+    return (
+        f"FontName={style.get('font', 'Arial')},"
+        f"FontSize={font_size},"
+        f"PrimaryColour={color},"
+        f"OutlineColour={stroke},"
+        f"Outline={stroke_w},"
+        f"Shadow=0,"
+        f"Alignment={alignment},"
+        f"MarginV={margin_v}"
+    )
+
+
 def make_preview(params):
-    """Renderiza output/preview.mp4 com apenas os trechos mantidos."""
+    """Renderiza output/preview.mp4 com trechos mantidos e legendas queimadas."""
     clips, _ = compute(params)
     keeps = [(c["sec_in"], c["sec_out"]) for c in clips]
     if not keeps:
@@ -275,6 +308,43 @@ def make_preview(params):
     os.makedirs(OUTDIR, exist_ok=True)
     out = os.path.join(OUTDIR, "preview.mp4")
     core.build_preview(FFMPEG, VIDEO, keeps, out)
+
+    # queima legendas se caption_style.on == True e segments foram enviados
+    segs = params.get("segments") or []
+    caption_style = params.get("caption_style") or {}
+    if segs and caption_style.get("on", True) and os.path.isfile(out):
+        overlay = core.classify_segments(segs, clips, INFO["fps"]) if clips else []
+        remapped = [
+            {**s, "start": ov["tl_start_s"], "end": ov["tl_end_s"]}
+            for s, ov in zip(segs, overlay)
+            if ov["status"] != "cut"
+        ]
+        if remapped:
+            srt_name = "_preview_subs.srt"
+            srt_tmp = os.path.join(OUTDIR, srt_name)
+            with open(srt_tmp, "w", encoding="utf-8") as f:
+                for i, s in enumerate(remapped, 1):
+                    text = " ".join((s.get("text") or "").split())
+                    f.write(f"{i}\n{_sec_to_srt(s['start'])} --> "
+                            f"{_sec_to_srt(s['end'])}\n{text}\n\n")
+
+            preview_h = int(720 * INFO["height"] / max(INFO["width"], 1))
+            force_style = _caption_style_to_ass(caption_style, preview_h)
+            out_sub = os.path.join(OUTDIR, "_preview_sub.mp4")
+            # usa cwd=OUTDIR + nome relativo para evitar problema de path no Windows
+            cmd = [FFMPEG, "-y", "-hide_banner", "-nostats",
+                   "-i", out,
+                   "-vf", f"subtitles={srt_name}:force_style='{force_style}'",
+                   "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+                   "-c:a", "copy", out_sub]
+            res = subprocess.run(cmd, capture_output=True, text=True,
+                                 encoding="utf-8", errors="replace",
+                                 cwd=OUTDIR)
+            if res.returncode == 0 and os.path.isfile(out_sub):
+                os.replace(out_sub, out)
+            else:
+                print(f"[preview] subtitles burn failed: {res.stderr[-400:]}", flush=True)
+
     return {"ok": True, "path": out}
 
 
@@ -520,12 +590,13 @@ def export_srt(params):
         return {"ok": False, "error": "Todos os trechos foram removidos pelo corte atual."}
 
     os.makedirs(OUTDIR, exist_ok=True)
-    srt_path = os.path.join(OUTDIR, "transcricao.srt")
-    txt_path = os.path.join(OUTDIR, "transcricao.txt")
+    # nome separado da transcricao original — nao sobrescreve transcricao.srt
+    srt_path = os.path.join(OUTDIR, "legenda_premiere.srt")
+    txt_path = os.path.join(OUTDIR, "legenda_premiere.txt")
 
     with open(srt_path, "w", encoding="utf-8") as f:
         for i, s in enumerate(remapped, 1):
-            text = " ".join((s.get("text") or "").split())  # 1 linha por legenda
+            text = " ".join((s.get("text") or "").split())
             f.write(f"{i}\n{_sec_to_srt(s['start'])} --> {_sec_to_srt(s['end'])}\n{text}\n\n")
     with open(txt_path, "w", encoding="utf-8") as f:
         f.write("\n".join(" ".join((s.get("text") or "").split()) for s in remapped))

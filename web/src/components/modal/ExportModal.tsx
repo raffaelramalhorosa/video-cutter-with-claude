@@ -4,7 +4,6 @@ import { useAppStore } from '../../store/useAppStore'
 
 export default function ExportModal() {
   const { exportModalOpen, transSegs, analysis, motionState, exportXml } = useAppStore()
-  const [srt, setSrt] = useState(true)
   const [motion, setMotion] = useState(true)
   const [chapters, setChapters] = useState(true)
 
@@ -31,17 +30,32 @@ export default function ExportModal() {
       <div className="bg-bg-secondary rounded-lg p-5 w-full max-w-[440px] shadow-2xl border border-text-muted/10">
         <h2 className="text-base font-medium m-0 mb-1">Exportar para o Premiere</h2>
         <p className="text-text-secondary text-xs mb-4">
-          O XML de cortes sempre será gerado. Selecione o que mais deseja exportar junto:
+          Sempre gerados juntos: XML de cortes + legenda sincronizada com a timeline.
         </p>
-        <div className="flex flex-col gap-2 mb-5">
+
+        {/* itens sempre incluídos */}
+        <div className="flex flex-col gap-1.5 mb-3">
+          <div className="flex items-start gap-3 bg-bg rounded-md px-3 py-2.5 opacity-80">
+            <span className="text-accent text-xs mt-0.5">✓</span>
+            <span className="min-w-0">
+              <span className="block text-[13px] text-text-primary">XML de cortes (timeline.xml)</span>
+            </span>
+          </div>
           {hasSrt && (
-            <label className="flex items-start gap-3 cursor-pointer bg-bg rounded-md p-3 hover:bg-bg/60 transition-colors">
-              <input type="checkbox" checked={srt} onChange={(e) => setSrt(e.target.checked)} className="accent-accent mt-0.5" />
+            <div className="flex items-start gap-3 bg-bg rounded-md px-3 py-2.5 opacity-80">
+              <span className="text-accent text-xs mt-0.5">✓</span>
               <span className="min-w-0">
-                <span className="block text-[13px] text-text-primary">Legendas (.srt)</span>
-                <span className="block text-text-muted text-xs">{transSegs.length} segmento(s) de transcrição</span>
+                <span className="block text-[13px] text-text-primary">Legendas sincronizadas (legenda_premiere.srt)</span>
+                <span className="block text-text-muted text-xs">{transSegs.length} segmento(s) · timecodes ajustados para a timeline cortada</span>
               </span>
-            </label>
+            </div>
+          )}
+        </div>
+
+        {/* opcionais */}
+        <div className="flex flex-col gap-2 mb-5">
+          {(hasMotion || hasChapters) && (
+            <p className="text-text-muted text-[11px] uppercase tracking-wide">Opcionais</p>
           )}
           {hasMotion && (
             <label className="flex items-start gap-3 cursor-pointer bg-bg rounded-md p-3 hover:bg-bg/60 transition-colors">
@@ -61,7 +75,7 @@ export default function ExportModal() {
               </span>
             </label>
           )}
-          {!hasSrt && !hasMotion && !hasChapters && (
+          {!hasMotion && !hasChapters && (
             <p className="text-text-muted text-xs">Nenhuma opção extra disponível.</p>
           )}
         </div>
@@ -70,7 +84,7 @@ export default function ExportModal() {
             Cancelar
           </button>
           <button
-            onClick={() => { close(); exportXml({ includeSrt: srt && hasSrt, includeMotion: motion && hasMotion, includeChapters: chapters && hasChapters }) }}
+            onClick={() => { close(); exportXml({ includeSrt: hasSrt, includeMotion: motion && hasMotion, includeChapters: chapters && hasChapters }) }}
             className="bg-accent text-on-accent rounded-sm px-3.5 py-2 text-[13px] font-medium hover:bg-accent-hover transition-colors"
           >
             Exportar

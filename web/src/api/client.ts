@@ -56,6 +56,8 @@ export const apiPreview = (params: {
   margin: number
   min_clip: number
   manual_cuts: [number, number][]
+  segments?: { start: number; end: number; text?: string }[]
+  caption_style?: Record<string, unknown>
 }) => post<{ ok: boolean; path: string; error?: string }>('/api/preview', params)
 
 export const apiTranscribe = (params: { language: string }) =>

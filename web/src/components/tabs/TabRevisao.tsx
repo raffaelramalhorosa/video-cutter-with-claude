@@ -10,7 +10,7 @@ import TranscriptPanel from '../transcript/TranscriptPanel'
 
 export default function TabRevisao() {
   const [renderingPreview, setRenderingPreview] = useState(false)
-  const { keeps, skipMode, setSkipMode, status, params, manualCuts, detecting } = useAppStore()
+  const { keeps, skipMode, setSkipMode, status, params, manualCuts, detecting, transSegs, captionStyle } = useAppStore()
   const dur = useAppStore((s) => s.dur)
   const kept = keeps.reduce((a, k) => a + k.out - k.in, 0)
   const removed = dur - kept
@@ -29,7 +29,12 @@ export default function TabRevisao() {
     setRenderingPreview(true)
     useAppStore.setState({ status: { msg: 'Renderizando preview…', ok: false } })
     try {
-      const d = await apiPreview({ ...params, manual_cuts: manualCuts })
+      const d = await apiPreview({
+        ...params,
+        manual_cuts: manualCuts,
+        segments: transSegs,
+        caption_style: captionStyle,
+      })
       if (d.ok) useAppStore.setState({ status: { msg: 'Preview gerado → ' + d.path, ok: true } })
       else useAppStore.setState({ status: { msg: 'Erro: ' + (d.error ?? 'falha'), ok: false } })
     } finally {
