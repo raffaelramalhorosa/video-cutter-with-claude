@@ -25,6 +25,9 @@ export const apiInfo = () => get<InfoResponse>('/api/info')
 
 export const apiAnalysis = () => get<Analysis & { available: boolean }>('/api/analysis')
 
+export const apiTranscript = () =>
+  get<{ available: boolean; segments: TranscriptSegment[]; count: number }>('/api/transcript')
+
 export const apiIaStatus = () => get<{ connected: boolean; age_s: number | null }>('/api/ia_status')
 
 export const apiDetect = (params: {

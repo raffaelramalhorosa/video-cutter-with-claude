@@ -1,14 +1,15 @@
+﻿import { useState } from 'react'
 import VideoPlayer from '../player/VideoPlayer'
 import Timeline from '../player/Timeline'
-import CaptionTimeline from '../player/CaptionTimeline'
 import CaptionStylePanel from '../player/CaptionStylePanel'
 import ParamsPanel from '../params/ParamsPanel'
 import { useAppStore } from '../../store/useAppStore'
 import { apiPreview } from '../../api/client'
-import { playerRef } from '../player/VideoPlayer'
+import { playerRef } from '../player/playerRef'
 import TranscriptPanel from '../transcript/TranscriptPanel'
 
 export default function TabRevisao() {
+  const [renderingPreview, setRenderingPreview] = useState(false)
   const { keeps, skipMode, setSkipMode, status, params, manualCuts, detecting } = useAppStore()
   const dur = useAppStore((s) => s.dur)
   const kept = keeps.reduce((a, k) => a + k.out - k.in, 0)
@@ -25,10 +26,15 @@ export default function TabRevisao() {
   }
 
   const handlePreview = async () => {
-    useAppStore.setState({ status: { msg: 'Renderizando preview.mp4…', ok: false } })
-    const d = await apiPreview({ ...params, manual_cuts: manualCuts })
-    if (d.ok) useAppStore.setState({ status: { msg: 'Preview gerado → ' + d.path, ok: true } })
-    else useAppStore.setState({ status: { msg: 'Erro: ' + (d.error ?? 'falha'), ok: false } })
+    setRenderingPreview(true)
+    useAppStore.setState({ status: { msg: 'Renderizando preview…', ok: false } })
+    try {
+      const d = await apiPreview({ ...params, manual_cuts: manualCuts })
+      if (d.ok) useAppStore.setState({ status: { msg: 'Preview gerado → ' + d.path, ok: true } })
+      else useAppStore.setState({ status: { msg: 'Erro: ' + (d.error ?? 'falha'), ok: false } })
+    } finally {
+      setRenderingPreview(false)
+    }
   }
 
   return (
@@ -55,7 +61,6 @@ export default function TabRevisao() {
           <VideoPlayer />
           <Timeline />
         </div>
-        <CaptionTimeline />
 
         {/* stats + ações */}
         <div className="px-4 py-4 border-t border-text-muted/10">
@@ -83,9 +88,9 @@ export default function TabRevisao() {
               className="bg-bg-secondary text-text-primary rounded-sm px-3.5 py-2 text-[13px] hover:bg-bg-secondary/70 transition-colors min-w-[160px] text-center">
               {skipMode ? '⏸ Parar revisão' : '▶ Revisar cortes'}
             </button>
-            <button onClick={handlePreview}
-              className="bg-bg-secondary text-text-primary rounded-sm px-3.5 py-2 text-[13px] hover:bg-bg-secondary/70 transition-colors">
-              Gerar preview.mp4
+            <button onClick={handlePreview} disabled={renderingPreview}
+              className="bg-bg-secondary text-text-primary rounded-sm px-3.5 py-2 text-[13px] hover:bg-bg-secondary/70 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+              {renderingPreview ? '⏳ Gerando…' : 'Gerar preview'}
             </button>
             <button
               onClick={() => useAppStore.setState({ exportModalOpen: true })}

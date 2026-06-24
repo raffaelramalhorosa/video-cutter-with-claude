@@ -1,6 +1,6 @@
-import { useRef, useEffect, useCallback, useState } from 'react'
+﻿import { useRef, useEffect, useCallback, useState } from 'react'
 import { useAppStore } from '../../store/useAppStore'
-import { playerRef } from './VideoPlayer'
+import { playerRef } from './playerRef'
 import type { Keep, CaptionBlock } from '../../types'
 
 // ---------- funções de remapeamento de tempo ----------
@@ -406,6 +406,54 @@ export default function CaptionTimeline() {
                 Unir com próximo →
               </button>
             )}
+          </div>
+
+          {/* tamanho e largura por bloco */}
+          <div className="mt-2.5 flex flex-col gap-2 text-[11px] text-text-secondary">
+            <div className="flex items-center gap-2">
+              <span className="w-24 shrink-0">Fonte (px)</span>
+              <input
+                type="range"
+                min={10}
+                max={48}
+                step={1}
+                value={selectedBlock.fontSize ?? ''}
+                onChange={(e) => setCaptionBlockStyle(selectedBlock.id, { fontSize: e.target.value ? Number(e.target.value) : undefined })}
+                className="flex-1 accent-accent"
+              />
+              <span className="tabular-nums text-text-muted w-10 text-right">
+                {selectedBlock.fontSize != null ? `${selectedBlock.fontSize}px` : 'global'}
+              </span>
+              {selectedBlock.fontSize != null && (
+                <button
+                  onClick={() => setCaptionBlockStyle(selectedBlock.id, { fontSize: undefined })}
+                  className="text-text-muted hover:text-text-secondary text-[10px]"
+                  title="Usar valor global"
+                >✕</button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-24 shrink-0">Largura máx.</span>
+              <input
+                type="range"
+                min={30}
+                max={100}
+                step={1}
+                value={selectedBlock.maxWidth ?? ''}
+                onChange={(e) => setCaptionBlockStyle(selectedBlock.id, { maxWidth: e.target.value ? Number(e.target.value) : undefined })}
+                className="flex-1 accent-accent"
+              />
+              <span className="tabular-nums text-text-muted w-10 text-right">
+                {selectedBlock.maxWidth != null ? `${selectedBlock.maxWidth}%` : 'global'}
+              </span>
+              {selectedBlock.maxWidth != null && (
+                <button
+                  onClick={() => setCaptionBlockStyle(selectedBlock.id, { maxWidth: undefined })}
+                  className="text-text-muted hover:text-text-secondary text-[10px]"
+                  title="Usar valor global"
+                >✕</button>
+              )}
+            </div>
           </div>
         </div>
       )}

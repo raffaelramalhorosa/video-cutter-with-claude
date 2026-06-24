@@ -1,7 +1,7 @@
-import { useRef } from 'react'
+﻿import { useRef, useEffect } from 'react'
 import { useAppStore } from '../../store/useAppStore'
 import type { AnalysisSegment, SegOverlay } from '../../types'
-import { playerRef } from '../player/VideoPlayer'
+import { playerRef } from '../player/playerRef'
 
 function fmt(s: number) {
   const m = Math.floor(s / 60)
@@ -24,6 +24,15 @@ export default function TranscriptSegment({ index, start, end, text, seg, overla
   const xRef = useRef<HTMLSpanElement>(null)
 
   const isCut = manualCuts.some(([s, e]) => s === transSegs[index]?.start && e === transSegs[index]?.end)
+
+  // deve ficar ANTES do early return — Rules of Hooks não permite hooks condicionais
+  // controla o DOM do contentEditable diretamente para não resetar o cursor a cada keystroke:
+  // só sincroniza quando o campo não está em foco (ex: atualização externa, "Aplicar sugestão")
+  useEffect(() => {
+    if (xRef.current && document.activeElement !== xRef.current) {
+      xRef.current.textContent = text
+    }
+  }, [text])
 
   // overlay reflete o resultado final do corte (silencio + manual_cuts) -- por isso
   // nao precisa de logica separada para "frase repetida" vs "silencio".
@@ -62,6 +71,7 @@ export default function TranscriptSegment({ index, start, end, text, seg, overla
   const applySuggestion = () => {
     if (!seg?.suggestion) return
     updateTransSeg(index, seg.suggestion)
+    // o useEffect acima vai sincronizar o DOM quando o foco sair do campo
     if (xRef.current) xRef.current.textContent = seg.suggestion
   }
 
@@ -92,9 +102,7 @@ export default function TranscriptSegment({ index, start, end, text, seg, overla
         suppressContentEditableWarning
         spellCheck={false}
         onInput={(e) => updateTransSeg(index, (e.target as HTMLSpanElement).textContent ?? '')}
-      >
-        {text}
-      </span>
+      />
       {seg && (
         <div className="issues basis-full mt-0.5 ml-[116px] text-xs">
           {(seg.issues ?? []).map((it, ii) => (

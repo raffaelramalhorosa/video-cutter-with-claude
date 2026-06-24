@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+﻿import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../store/useAppStore'
 import TranscriptSegment from './TranscriptSegment'
 import { apiExportSrt } from '../../api/client'
-import { playerRef } from '../player/VideoPlayer'
+import { playerRef } from '../player/playerRef'
 
 export default function TranscriptPanel() {
   const { transSegs, transOverlay, params, manualCuts, transLang, setTransLang, transcribe, analysis, transStatus, applyAllCuts } = useAppStore()

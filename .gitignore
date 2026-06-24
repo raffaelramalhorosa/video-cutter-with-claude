@@ -4,6 +4,9 @@ models/*.bin
 # Binarios da CLI do Tailwind (~100 MB cada) — baixar via /setup
 web/tools/*
 
+# Binario do whisper-cli (whisper.cpp) — baixar via /setup, nao versionar
+bin/
+
 # Saidas geradas (timeline, preview, transcricao, analise)
 output/*
 
@@ -19,6 +22,9 @@ remotion/node_modules/
 
 # Build artifacts do Remotion
 remotion/out/
+
+# Clipes .mov gerados (ProRes 4444 — grandes demais para versionar)
+remotion/public/
 
 # Build do frontend React
 web/dist/

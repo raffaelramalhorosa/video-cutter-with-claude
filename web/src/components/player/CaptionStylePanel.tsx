@@ -125,6 +125,43 @@ export default function CaptionStylePanel() {
             </div>
           </section>
 
+          {/* Tamanho e área */}
+          <section>
+            <SectionTitle>Tamanho e área</SectionTitle>
+            <div className="flex flex-col gap-2.5">
+              <div className="flex flex-col gap-1 text-[12px] text-text-secondary">
+                <div className="flex justify-between">
+                  <span>Tamanho da fonte</span>
+                  <span className="tabular-nums text-text-muted">{captionStyle.fontSize}px</span>
+                </div>
+                <input
+                  type="range"
+                  min={10}
+                  max={48}
+                  step={1}
+                  value={captionStyle.fontSize}
+                  onChange={(e) => setCaptionStyle({ fontSize: Number(e.target.value) })}
+                  className="w-full accent-accent"
+                />
+              </div>
+              <div className="flex flex-col gap-1 text-[12px] text-text-secondary">
+                <div className="flex justify-between">
+                  <span>Largura máxima</span>
+                  <span className="tabular-nums text-text-muted">{captionStyle.maxWidth}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={30}
+                  max={100}
+                  step={1}
+                  value={captionStyle.maxWidth}
+                  onChange={(e) => setCaptionStyle({ maxWidth: Number(e.target.value) })}
+                  className="w-full accent-accent"
+                />
+              </div>
+            </div>
+          </section>
+
           {/* Palavras por vez */}
           <section>
             <SectionTitle>Palavras por vez</SectionTitle>
@@ -144,6 +181,27 @@ export default function CaptionStylePanel() {
               ))}
             </div>
           </section>
+
+          {/* Duração mínima por palavra (só visível no modo palavra-por-vez) */}
+          {captionStyle.wordsPerCaption > 0 && (
+            <section>
+              <SectionTitle>Duração mínima por palavra</SectionTitle>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={0.1}
+                  max={2.0}
+                  step={0.1}
+                  value={captionStyle.minChunkDur ?? 0.4}
+                  onChange={(e) => setCaptionStyle({ minChunkDur: Number(e.target.value) })}
+                  className="w-full accent-accent"
+                />
+                <span className="text-[11px] text-text-secondary w-10 text-right shrink-0">
+                  {(captionStyle.minChunkDur ?? 0.4).toFixed(1)}s
+                </span>
+              </div>
+            </section>
+          )}
 
           {/* Efeito de entrada */}
           <section>

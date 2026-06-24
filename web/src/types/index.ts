@@ -12,10 +12,16 @@ export interface Params {
   min_clip: number
 }
 
+export interface WordTime {
+  start: number
+  end: number
+}
+
 export interface TranscriptSegment {
   start: number
   end: number
   text: string
+  words?: WordTime[]   // tempo de cada palavra (alinhado 1:1 com text.split(' '))
 }
 
 export interface Issue {
@@ -96,7 +102,10 @@ export interface CaptionBlock {
   text: string
   effect?: string              // sobrescreve o efeito global (opcional)
   font?: string                // sobrescreve a fonte global (opcional)
+  fontSize?: number            // sobrescreve o tamanho global em px (opcional)
+  maxWidth?: number            // sobrescreve a largura máxima em % (opcional)
   removedWords?: number[]      // índices das palavras removidas do bloco
+  words?: WordTime[]           // tempo de cada palavra (alinhado 1:1 com text.split(' '))
 }
 
 export interface CustomFont {
@@ -115,6 +124,9 @@ export interface CaptionStyle {
   strokeColor: string
   strokeWidth: number  // 0–8 px
   yPct: number          // posição vertical da legenda (% de cima para baixo)
+  fontSize: number      // tamanho da fonte em px (padrão 20)
+  maxWidth: number      // largura máxima do container em % do player (padrão 82)
+  minChunkDur: number   // duração mínima por palavra/chunk em segundos (padrão 0.4)
   customFonts: CustomFont[]
 }
 

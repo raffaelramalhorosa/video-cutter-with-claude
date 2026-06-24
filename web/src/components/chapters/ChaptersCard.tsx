@@ -1,5 +1,5 @@
-import { useAppStore } from '../../store/useAppStore'
-import { playerRef } from '../player/VideoPlayer'
+﻿import { useAppStore } from '../../store/useAppStore'
+import { playerRef } from '../player/playerRef'
 
 function toMMSS(s: number) {
   s = Math.max(0, Math.round(s))

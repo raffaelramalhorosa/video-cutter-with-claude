@@ -232,6 +232,21 @@ def find_model():
     return None
 
 
+def find_whisper_cli():
+    """Acha o binario whisper-cli (whisper.cpp): variavel WHISPER_CLI ou em bin/."""
+    env = os.environ.get("WHISPER_CLI")
+    if env and os.path.isfile(env):
+        return env
+    names = ["whisper-cli.exe", "whisper-cli"]
+    dirs = [os.path.join(BASE, "bin", "Release"), os.path.join(BASE, "bin")]
+    for d in dirs:
+        for n in names:
+            c = os.path.join(d, n)
+            if os.path.isfile(c):
+                return c
+    return None
+
+
 def _srt_time_to_sec(t):
     """'00:00:01,234' -> 1.234"""
     h, m, rest = t.split(":")
@@ -261,45 +276,130 @@ def parse_srt(path):
     return segs
 
 
+# Reconstrucao de frases a partir das palavras cronometradas
+PHRASE_MAX_WORDS = 14     # frase nao passa disso (legibilidade no painel)
+PHRASE_GAP = 1.0          # silencio (s) entre palavras que forca quebra de frase
+SENT_END = (".", "?", "!", "…")  # pontuacao de fim de frase
+
+
+def _parse_whisper_json_words(path):
+    """Le o JSON do whisper-cli (gerado com -ml 1 -sow) -> [{start,end,text}].
+
+    Com -ml 1 -sow cada entrada de `transcription` e uma unica palavra, com
+    `offsets.from`/`offsets.to` em milissegundos.
+    """
+    with open(path, encoding="utf-8") as f:
+        d = json.load(f)
+    words = []
+    for e in d.get("transcription", []):
+        text = (e.get("text") or "").strip()
+        if not text:
+            continue
+        off = e.get("offsets") or {}
+        start = (off.get("from") or 0) / 1000.0
+        end = (off.get("to") or 0) / 1000.0
+        words.append({"start": start, "end": end, "text": text})
+    return words
+
+
+def _make_phrase(ws):
+    """Monta um segmento de frase a partir de uma lista de palavras."""
+    return {
+        "start": round(ws[0]["start"], 3),
+        "end": round(ws[-1]["end"], 3),
+        "text": " ".join(w["text"] for w in ws),
+        # words alinha 1:1 com text.split(' ') no frontend (mesma ordem)
+        "words": [{"start": round(w["start"], 3), "end": round(w["end"], 3)} for w in ws],
+    }
+
+
+def _words_to_phrases(words):
+    """Agrupa palavras cronometradas em frases legiveis (para painel + SRT).
+
+    Quebra ao fim de frase (pontuacao), em pausa longa (PHRASE_GAP) ou ao
+    atingir o limite de palavras (PHRASE_MAX_WORDS).
+    """
+    phrases, cur = [], []
+    for i, w in enumerate(words):
+        cur.append(w)
+        ends_sentence = w["text"].endswith(SENT_END)
+        gap_next = (i + 1 < len(words)) and (words[i + 1]["start"] - w["end"] > PHRASE_GAP)
+        if ends_sentence or gap_next or len(cur) >= PHRASE_MAX_WORDS:
+            phrases.append(_make_phrase(cur))
+            cur = []
+    if cur:
+        phrases.append(_make_phrase(cur))
+    return phrases
+
+
 def transcribe(params):
-    """Transcreve o audio do video atual e grava SRT + TXT em output/."""
+    """Transcreve o audio do video atual com whisper-cli (tempo por palavra) e
+    grava SRT (por frase, para o Premiere) + JSON (frase + palavras) + TXT."""
     model = find_model()
     if not model:
         return {"ok": False, "error": "Modelo Whisper nao encontrado. "
                 "Baixe um ggml-*.bin para a pasta models/."}
+    cli = find_whisper_cli()
+    if not cli:
+        return {"ok": False, "error": "whisper-cli nao encontrado. "
+                "Coloque o whisper-cli.exe (whisper.cpp) na pasta bin/."}
 
     language = params.get("language", "pt") or "pt"
     os.makedirs(OUTDIR, exist_ok=True)
     srt_path = os.path.join(OUTDIR, "transcricao.srt")
+    json_path = os.path.join(OUTDIR, "transcricao.json")
+    for p in (srt_path, json_path):
+        try:
+            os.remove(p)  # evita misturar com transcricao anterior
+        except OSError:
+            pass
+
+    # 1) extrai o audio em WAV 16kHz mono (formato exigido pelo whisper.cpp)
+    wav = os.path.join(OUTDIR, "_audio16k.wav")
+    cmd_wav = [FFMPEG, "-y", "-hide_banner", "-loglevel", "error", "-i", VIDEO,
+               "-vn", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav]
     try:
-        os.remove(srt_path)  # evita misturar com transcricao anterior
+        subprocess.run(cmd_wav, capture_output=True, text=True, timeout=600)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"Falha ao extrair o audio: {e}"}
+    if not os.path.isfile(wav):
+        return {"ok": False, "error": "Falha ao extrair o audio do video."}
+
+    # 2) whisper-cli com tempo por palavra (-ml 1 -sow) -> JSON
+    out_base = os.path.join(OUTDIR, "_whisper_words")  # gera _whisper_words.json
+    wj = out_base + ".json"
+    try:
+        os.remove(wj)
     except OSError:
         pass
-
-    # Caminhos relativos a BASE evitam ter de escapar "C:\\" dentro do filtergraph
-    # do ffmpeg (o ":" do drive quebra o parser). Por isso rodamos com cwd=BASE.
-    try:
-        model_arg = os.path.relpath(model, BASE).replace("\\", "/")
-    except ValueError:
-        model_arg = model.replace("\\", "/")  # modelo em outro drive (raro)
-    dest_arg = os.path.relpath(srt_path, BASE).replace("\\", "/")
-
-    af = (f"whisper=model={model_arg}:language={language}:format=srt:"
-          f"queue=30:destination={dest_arg}")
-    cmd = [FFMPEG, "-y", "-hide_banner", "-nostats", "-i", VIDEO,
-           "-vn", "-af", af, "-f", "null", "-"]
+    cmd = [cli, "-m", model, "-l", language, "-ml", "1", "-sow",
+           "-oj", "-np", "-of", out_base, wav]
     try:
         res = subprocess.run(cmd, capture_output=True, text=True,
-                             encoding="utf-8", errors="replace",
-                             timeout=3600, cwd=BASE)
+                             encoding="utf-8", errors="replace", timeout=3600)
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": f"Falha ao executar a transcricao: {e}"}
 
-    if not os.path.isfile(srt_path):
+    if not os.path.isfile(wj):
         return {"ok": False, "error": "A transcricao nao gerou saida.",
                 "log": (res.stderr or "")[-800:]}
 
-    segs = parse_srt(srt_path)
+    words = _parse_whisper_json_words(wj)
+    if not words:
+        return {"ok": False, "error": "A transcricao nao reconheceu nenhuma fala.",
+                "log": (res.stderr or "")[-800:]}
+    segs = _words_to_phrases(words)
+
+    # SRT por frase (para o Premiere). _sec_to_srt esta definido logo abaixo.
+    with open(srt_path, "w", encoding="utf-8") as f:
+        for i, s in enumerate(segs):
+            f.write(f"{i}\n{_sec_to_srt(s['start'])} --> {_sec_to_srt(s['end'])}\n"
+                    f"{s['text']}\n\n")
+
+    # JSON rico (frase + palavras cronometradas) — fonte da legenda no painel
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(segs, f, ensure_ascii=False)
+
     txt_path = os.path.join(OUTDIR, "transcricao.txt")
     with open(txt_path, "w", encoding="utf-8") as f:
         f.write("\n".join(s["text"] for s in segs))
@@ -681,6 +781,23 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(404)
         elif path == "/api/analysis":
             self._json(read_analysis())
+        elif path == "/api/transcript":
+            # Prefere o JSON rico (frase + tempo por palavra); cai no SRT antigo
+            # (sem palavras) quando a transcricao foi feita com a versao antiga.
+            jpath = os.path.join(OUTDIR, "transcricao.json")
+            srt = os.path.join(OUTDIR, "transcricao.srt")
+            if os.path.isfile(jpath):
+                try:
+                    with open(jpath, encoding="utf-8") as f:
+                        segs = json.load(f)
+                    self._json({"available": True, "segments": segs, "count": len(segs)})
+                except (OSError, ValueError):
+                    self._json({"available": False, "segments": [], "count": 0})
+            elif os.path.isfile(srt):
+                segs = parse_srt(srt)
+                self._json({"available": True, "segments": segs, "count": len(segs)})
+            else:
+                self._json({"available": False, "segments": [], "count": 0})
         elif path == "/api/ia_status":
             self._json(ia_status())
         elif path == "/api/info":

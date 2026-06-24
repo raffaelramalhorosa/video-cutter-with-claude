@@ -487,7 +487,8 @@ def build_preview(ffmpeg, src_path, keeps, out_path):
     parts = []
     labels = []
     for i, (a, b) in enumerate(keeps):
-        parts.append(f"[0:v]trim=start={a}:end={b},setpts=PTS-STARTPTS[v{i}]")
+        # scale=720:-2 reduz para 720px de largura mantendo proporção (preview rápido)
+        parts.append(f"[0:v]trim=start={a}:end={b},setpts=PTS-STARTPTS,scale=720:-2[v{i}]")
         parts.append(f"[0:a]atrim=start={a}:end={b},asetpts=PTS-STARTPTS[a{i}]")
         labels.append(f"[v{i}][a{i}]")
     n = len(keeps)
@@ -496,7 +497,8 @@ def build_preview(ffmpeg, src_path, keeps, out_path):
 
     cmd = [ffmpeg, "-y", "-hide_banner", "-nostats", "-i", src_path,
            "-filter_complex", filtergraph, "-map", "[v]", "-map", "[a]",
-           "-c:v", "libx264", "-c:a", "aac", out_path]
+           "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+           "-c:a", "aac", out_path]
     subprocess.run(cmd, capture_output=True, text=True,
                    encoding="utf-8", errors="replace")
 

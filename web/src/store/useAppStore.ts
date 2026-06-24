@@ -1,8 +1,9 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import type { Keep, Params, TranscriptSegment, Analysis, MotionEntry, ExportOpts, MediaMeta, SegOverlay, CaptionBlock, CaptionStyle, CustomFont } from '../types'
 import {
   apiInfo, apiDetect, apiExport, apiAnalysis, apiTranscribe,
-  apiExportSrt, apiPick, apiMotionRender,
+  apiExportSrt, apiPick, apiMotionRender, apiTranscript,
 } from '../api/client'
 
 interface Status { msg: string; ok: boolean }
@@ -58,7 +59,7 @@ interface AppState {
   initCaptionBlocks: () => void
   splitCaptionBlock: (blockId: string, afterWordIndex: number) => void
   mergeCaptionBlock: (blockId: string) => void
-  setCaptionBlockStyle: (blockId: string, patch: { effect?: string; font?: string }) => void
+  setCaptionBlockStyle: (blockId: string, patch: { effect?: string; font?: string; fontSize?: number; maxWidth?: number }) => void
   toggleCaptionBlockWord: (blockId: string, wordIndex: number) => void
   setCaptionStyle: (patch: Partial<CaptionStyle>) => void
   addCustomFont: (font: CustomFont) => void
@@ -84,7 +85,9 @@ const defaultMotionEntry = (): MotionEntry => ({
   staggerSpeed: 1,
 })
 
-export const useAppStore = create<AppState>((set, get) => ({
+export const useAppStore = create<AppState>()(
+  persist(
+    (set, get) => ({
   dur: 0,
   mediaMeta: null,
   videoLabel: '',
@@ -112,6 +115,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     strokeColor: '#000000',
     strokeWidth: 0,
     yPct: 88,
+    fontSize: 20,
+    maxWidth: 82,
+    minChunkDur: 0.4,
     customFonts: [],
   },
   activeTab: 'revisao',
@@ -122,26 +128,37 @@ export const useAppStore = create<AppState>((set, get) => ({
   init: async () => {
     try {
       const d = await apiInfo()
+      // não sobrescreve params — o usuário pode ter ajustado e eles ficam no localStorage
       set({
         dur: d.media.duration,
         mediaMeta: d.media,
         videoLabel: d.video,
         videoDir: d.video_dir ?? '',
-        params: {
-          threshold: d.defaults.threshold,
-          min_silence: d.defaults.min_silence,
-          margin: d.defaults.margin,
-          min_clip: d.defaults.min_clip,
-        },
       })
+      // se transSegs estava vazio (localStorage antigo ou limpado), restaura do disco
+      if (get().transSegs.length === 0) {
+        try {
+          const t = await apiTranscript()
+          if (t.available && t.segments.length > 0) {
+            set({ transSegs: t.segments })
+            get().initCaptionBlocks()
+          }
+        } catch (_) {}
+      }
       await get().detect()
-      // carrega uma análise da IA já existente (sobrevive a reload, sem precisar re-transcrever)
+      // tenta carregar análise do disco (versão mais recente);
+      // se não disponível, o cache do localStorage permanece intacto
       try {
         const a = await apiAnalysis()
         if (a.available) get().applyAnalysis(a)
       } catch (_) { /* sem análise ainda — tudo bem */ }
     } catch (e) {
-      set({ status: { msg: 'Erro ao carregar informações do vídeo.', ok: false } })
+      // servidor sem vídeo — se havia estado em cache, restaura transOverlay
+      if (get().videoTs > 0) {
+        try { await get().detect() } catch (_) {}
+      } else {
+        set({ status: { msg: 'Erro ao carregar informações do vídeo.', ok: false } })
+      }
     }
   },
 
@@ -309,7 +326,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => {
       const segs = [...s.transSegs]
       segs[i] = { ...segs[i], text }
-      return { transSegs: segs }
+      // propaga a edição para o bloco de legenda correspondente, senão a correção
+      // (digitada ou via "Aplicar sugestão") não aparece na legenda do preview.
+      // Só trata o caso comum 1:1 (segmento não dividido na timeline de legenda):
+      // se o segmento virou vários blocos, não há como redistribuir o texto sozinho.
+      const matching = s.captionBlocks.filter((b) => b.segIndex === i)
+      let captionBlocks = s.captionBlocks
+      if (matching.length === 1 && matching[0].id === `seg-${i}`) {
+        const newWords = text.trim().split(/\s+/)
+        // mantém o tempo por palavra só se a contagem de palavras não mudou;
+        // se mudou (ex.: "quimidiária" -> "Queima Diária"), cai na heurística
+        const words = segs[i].words && segs[i].words!.length === newWords.length
+          ? segs[i].words
+          : undefined
+        captionBlocks = s.captionBlocks.map((b) =>
+          b.id === `seg-${i}` ? { ...b, text, words } : b
+        )
+      }
+      return { transSegs: segs, captionBlocks }
     })
   },
 
@@ -320,6 +354,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       start: s.start,
       end: s.end,
       text: s.text,
+      words: s.words,
     }))
     set({ captionBlocks: blocks })
   },
@@ -331,9 +366,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     const b = blocks[idx]
     const words = b.text.trim().split(/\s+/)
     if (afterWordIndex < 1 || afterWordIndex >= words.length) return
-    const splitT = b.start + (afterWordIndex / words.length) * (b.end - b.start)
-    const bA: CaptionBlock = { ...b, id: `${b.id}-L${afterWordIndex}`, text: words.slice(0, afterWordIndex).join(' '), end: splitT }
-    const bB: CaptionBlock = { ...b, id: `${b.id}-R${afterWordIndex}`, text: words.slice(afterWordIndex).join(' '), start: splitT }
+    // se há tempo por palavra, corta no início da palavra de quebra (preciso);
+    // senão, estima proporcionalmente como antes
+    const wt = b.words && b.words.length === words.length ? b.words : undefined
+    const splitT = wt ? wt[afterWordIndex].start : b.start + (afterWordIndex / words.length) * (b.end - b.start)
+    const bA: CaptionBlock = { ...b, id: `${b.id}-L${afterWordIndex}`, text: words.slice(0, afterWordIndex).join(' '), end: splitT, words: wt?.slice(0, afterWordIndex) }
+    const bB: CaptionBlock = { ...b, id: `${b.id}-R${afterWordIndex}`, text: words.slice(afterWordIndex).join(' '), start: splitT, words: wt?.slice(afterWordIndex) }
     const next = [...blocks]
     next.splice(idx, 1, bA, bB)
     set({ captionBlocks: next })
@@ -345,7 +383,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (idx === -1 || idx >= blocks.length - 1) return
     const a = blocks[idx], b = blocks[idx + 1]
     if (a.segIndex !== b.segIndex) return  // só merge dentro do mesmo segmento original
-    const merged: CaptionBlock = { ...a, end: b.end, text: `${a.text} ${b.text}` }
+    const mergedWords = a.words && b.words ? [...a.words, ...b.words] : undefined
+    const merged: CaptionBlock = { ...a, end: b.end, text: `${a.text} ${b.text}`, words: mergedWords }
     const next = [...blocks]
     next.splice(idx, 2, merged)
     set({ captionBlocks: next })
@@ -421,4 +460,28 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSkipMode: (on) => set({ skipMode: on }),
   setActiveTab: (t) => set({ activeTab: t }),
   setTransLang: (l) => set({ transLang: l }),
-}))
+    }),
+    {
+      name: 'claude-to-premier',
+      partialize: (state) => ({
+        params: state.params,
+        captionStyle: state.captionStyle,
+        transSegs: state.transSegs,
+        transLang: state.transLang,
+        analysis: state.analysis,
+        videoDir: state.videoDir,
+        videoLabel: state.videoLabel,
+        videoTs: state.videoTs,
+        mediaMeta: state.mediaMeta,
+        dur: state.dur,
+        manualCuts: state.manualCuts,
+        captionBlocks: state.captionBlocks,
+        keeps: state.keeps,
+        // persiste motionState mas reseta flags de geração em andamento
+        motionState: Object.fromEntries(
+          Object.entries(state.motionState).map(([k, v]) => [k, { ...v, generating: false }])
+        ),
+      }),
+    }
+  )
+)
