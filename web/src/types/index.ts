@@ -21,7 +21,9 @@ export interface TranscriptSegment {
   start: number
   end: number
   text: string
-  words?: WordTime[]   // tempo de cada palavra (alinhado 1:1 com text.split(' '))
+  words?: WordTime[]
+  is_filler?: boolean
+  is_repetition?: boolean
 }
 
 export interface Issue {
@@ -92,6 +94,24 @@ export interface SegOverlay {
   status: 'kept' | 'cut' | 'partial'
   tl_start_s?: number
   tl_end_s?: number
+  kept_pct?: number
+  cut_side?: 'start' | 'end' | 'both'
+  anchored?: boolean
+  lost_words?: string[]
+}
+
+export interface WaveformData {
+  samples: number[]        // 0-255, ~10 amostras/segundo
+  max_db: number           // dBFS do pico de amplitude no vídeo
+  samples_per_sec: number  // amostras por segundo (normalmente 10)
+  available: boolean
+}
+
+export interface DetectSnapshot {
+  params: Params
+  manualCuts: [number, number][]
+  keeps: Keep[]
+  transOverlay: SegOverlay[]
 }
 
 export interface CaptionBlock {

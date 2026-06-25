@@ -121,6 +121,52 @@ def detect_silence(ffmpeg, path, threshold_db, min_silence):
     return silences
 
 
+def get_waveform(ffmpeg: str, video: str, duration: float = 0) -> dict:
+    """Extrai amplitude RMS do áudio para visualização de waveform.
+
+    Resolução adaptativa: alvo de 100 amostras/s, limitado a 36 000 amostras
+    totais (≈36 KB) para não estourar o payload em vídeos longos.
+    """
+    import math, struct
+    dur = max(duration, 1.0)
+    # amostras-por-segundo alvo: 100 para vídeos curtos, menos para longos
+    target_sps = max(10, min(100, int(36_000 / dur)))
+    resample_rate = target_sps * 100  # janela fixa de 100 amostras
+    cmd = [
+        ffmpeg, "-hide_banner", "-nostats",
+        "-i", video,
+        "-ac", "1",
+        "-filter:a", f"aresample={resample_rate}",
+        "-map", "0:a",
+        "-f", "f32le",
+        "pipe:1",
+    ]
+    try:
+        res = subprocess.run(cmd, capture_output=True, timeout=60)
+    except Exception:
+        return {"samples": [], "max_db": -60.0, "samples_per_sec": target_sps}
+    if not res.stdout:
+        return {"samples": [], "max_db": -60.0, "samples_per_sec": target_sps}
+
+    n = len(res.stdout) // 4
+    raw = struct.unpack(f"{n}f", res.stdout[:n * 4])
+
+    win = 100
+    rms_list = []
+    for i in range(0, n, win):
+        chunk = raw[i:i + win]
+        rms = (sum(x * x for x in chunk) / len(chunk)) ** 0.5
+        rms_list.append(rms)
+
+    if not rms_list:
+        return {"samples": [], "max_db": -60.0, "samples_per_sec": target_sps}
+
+    max_rms = max(rms_list) or 1e-10
+    max_db = round(max(-60.0, min(0.0, 20 * math.log10(max_rms))), 1)
+    samples = [min(255, round(v / max_rms * 255)) for v in rms_list]
+    return {"samples": samples, "max_db": max_db, "samples_per_sec": target_sps}
+
+
 # ---------------------------------------------------------------------------
 # Calculo dos trechos a manter (inverso do silencio, com margem)
 # ---------------------------------------------------------------------------
@@ -361,6 +407,18 @@ def motion_clipitem(i, item, tb, ntsc):
     )
 
 
+def _point_in_cut(t, clips):
+    """Retorna True se o instante t cai dentro de um trecho cortado (entre clips)."""
+    if not clips:
+        return True
+    if t < clips[0]["sec_in"] or t >= clips[-1]["sec_out"]:
+        return True
+    for prev, nxt in zip(clips, clips[1:]):
+        if prev["sec_out"] <= t < nxt["sec_in"]:
+            return True
+    return False
+
+
 def classify_segments(segs, clips, fps):
     """
     Classifica segmentos de transcricao (cada um {start, end} em segundos do
@@ -371,6 +429,13 @@ def classify_segments(segs, clips, fps):
     Para kept/partial, calcula tl_start_s/tl_end_s -- posicao em segundos na
     timeline JA CORTADA, via map_time_to_timeline (mesma funcao usada para
     capitulos e motion design).
+
+    Campos extras no retorno:
+      - anchored (bool): o mapeamento temporal foi forcado para a borda mais
+        proxima porque start/end caiu dentro de um corte. Avisa o editor que
+        a posicao da legenda ou capitulo pode estar ligeiramente deslocada.
+      - cut_side ("start"|"end"|"both"): em segmentos "partial", indica qual
+        extremidade foi cortada -- ajuda o editor a decidir se precisa resyncar.
     """
     results = []
     for seg in segs:
@@ -394,11 +459,36 @@ def classify_segments(segs, clips, fps):
         status = "kept" if overlap >= total - 1e-3 else "partial"
         tl_start = map_time_to_timeline(start, clips, fps)
         tl_end = map_time_to_timeline(end, clips, fps)
-        results.append({
+        anchored = tl_start["anchored"] or tl_end["anchored"]
+        entry = {
             "status": status,
             "tl_start_s": round(tl_start["frame"] / fps, 3),
             "tl_end_s": round(tl_end["frame"] / fps, 3),
-        })
+            "anchored": anchored,
+        }
+        if status == "partial":
+            entry["kept_pct"] = max(1, min(99, round(overlap / total * 100)))
+            # indica qual extremidade foi cortada para o editor saber o que resyncar
+            start_cut = _point_in_cut(start, clips)
+            end_cut = _point_in_cut(end, clips)
+            if start_cut and end_cut:
+                entry["cut_side"] = "both"
+            elif start_cut:
+                entry["cut_side"] = "start"
+            else:
+                entry["cut_side"] = "end"
+            # detecta quais palavras especificas caem num trecho cortado
+            seg_words = seg.get("words", [])
+            seg_text_words = seg.get("text", "").split()
+            if seg_words and len(seg_words) == len(seg_text_words):
+                lost = [
+                    seg_text_words[i]
+                    for i, w in enumerate(seg_words)
+                    if _point_in_cut(w["start"], clips) or _point_in_cut(w["end"], clips)
+                ]
+                if lost:
+                    entry["lost_words"] = lost
+        results.append(entry)
     return results
 
 

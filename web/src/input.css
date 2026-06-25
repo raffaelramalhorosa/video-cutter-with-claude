@@ -53,6 +53,12 @@ body {
 }
 .cut-btn.on { background-color: var(--color-cut); border-color: var(--color-cut); color: var(--color-text-primary); }
 
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in { animation: fade-in 0.2s ease-out both; }
+
 /* === React: estilos que antes estavam no index.html === */
 .tab-btn { color: var(--color-text-secondary); }
 .tab-btn:hover { color: var(--color-text-primary); }

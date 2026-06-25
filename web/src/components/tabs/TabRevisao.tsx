@@ -11,6 +11,7 @@ import TranscriptPanel from '../transcript/TranscriptPanel'
 export default function TabRevisao() {
   const [renderingPreview, setRenderingPreview] = useState(false)
   const { keeps, skipMode, setSkipMode, status, params, manualCuts, detecting, transSegs, captionStyle } = useAppStore()
+  const previewTs = useAppStore((s) => s.previewTs)
   const dur = useAppStore((s) => s.dur)
   const kept = keeps.reduce((a, k) => a + k.out - k.in, 0)
   const removed = dur - kept
@@ -35,8 +36,11 @@ export default function TabRevisao() {
         segments: transSegs,
         caption_style: captionStyle,
       })
-      if (d.ok) useAppStore.setState({ status: { msg: 'Preview gerado → ' + d.path, ok: true } })
-      else useAppStore.setState({ status: { msg: 'Erro: ' + (d.error ?? 'falha'), ok: false } })
+      if (d.ok) {
+        useAppStore.setState({ previewTs: Date.now(), status: { msg: '', ok: true } })
+      } else {
+        useAppStore.setState({ status: { msg: 'Erro: ' + (d.error ?? 'falha'), ok: false } })
+      }
     } finally {
       setRenderingPreview(false)
     }
@@ -61,6 +65,17 @@ export default function TabRevisao() {
             <div className="flex items-center gap-2 mb-2 text-text-secondary text-[12px]">
               <span className="w-3.5 h-3.5 rounded-full border-2 border-text-muted/30 border-t-accent animate-spin shrink-0" />
               Calculando cortes… pode levar alguns minutos em vídeos longos.
+            </div>
+          )}
+          {previewTs > 0 && (
+            <div className="flex items-center justify-between mb-2 px-3 py-1.5 bg-accent/15 border border-accent/30 rounded-sm text-[12px]">
+              <span className="text-accent font-medium">▶ Você está vendo o preview gerado (com cortes e legendas queimadas)</span>
+              <button
+                onClick={() => useAppStore.setState({ previewTs: 0 })}
+                className="text-text-muted hover:text-text-primary transition-colors ml-4 shrink-0"
+              >
+                ✕ Voltar ao original
+              </button>
             </div>
           )}
           <VideoPlayer />

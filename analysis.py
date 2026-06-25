@@ -55,15 +55,53 @@ def _analyze_with_gemini(srt_text: str, api_key: str) -> dict:
     return json.loads(raw)
 
 
+def _enrich_srt_with_pauses(srt_text: str, json_path: str) -> str:
+    """Adiciona metadados de pausa/filler ao SRT para melhorar a análise da IA.
+
+    Para cada segmento, inclui: pausa antes (gap), duração, e flag de filler.
+    Esses dados ajudam o Gemini a diferenciar pausa intencional de falso começo.
+    """
+    if not os.path.isfile(json_path):
+        return srt_text
+    try:
+        segs = json.load(open(json_path, encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return srt_text
+
+    lines = ["=== METADADOS DE TIMING (use para detectar falsos começos) ==="]
+    prev_end = 0.0
+    for i, s in enumerate(segs):
+        gap = round(s["start"] - prev_end, 2)
+        dur = round(s["end"] - s["start"], 2)
+        tags = []
+        if gap > 1.5:
+            tags.append(f"pausa_longa={gap}s")
+        elif gap > 0.5:
+            tags.append(f"pausa={gap}s")
+        if dur < 0.5:
+            tags.append("muito_curto")
+        if s.get("is_filler"):
+            tags.append("filler_detectado")
+        if tags:
+            lines.append(f"[seg {i}] {', '.join(tags)}")
+        prev_end = s["end"]
+
+    metadata = "\n".join(lines)
+    return f"{srt_text}\n\n{metadata}"
+
+
 def auto_analyze(srt_path: str) -> None:
-    """Lê o SRT, chama Gemini em background e salva output/analise.json."""
+    """Lê o SRT, enriquece com metadados de timing, chama Gemini e salva analise.json."""
     api_key = load_gemini_key()
     if not api_key:
         print("[gemini] chave não configurada — análise automática pulada", flush=True)
         return
     try:
         srt_text = open(srt_path, encoding="utf-8").read()
-        data = _analyze_with_gemini(srt_text, api_key)
+        # enriquece com dados de pausa/filler do JSON de transcrição
+        json_path = srt_path.replace(".srt", ".json")
+        srt_enriched = _enrich_srt_with_pauses(srt_text, json_path)
+        data = _analyze_with_gemini(srt_enriched, api_key)
         out = os.path.join(state.OUTDIR, "analise.json")
         os.makedirs(state.OUTDIR, exist_ok=True)
         with open(out, "w", encoding="utf-8") as f:

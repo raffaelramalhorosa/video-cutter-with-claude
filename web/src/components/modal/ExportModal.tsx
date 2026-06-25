@@ -2,10 +2,20 @@ import { createPortal } from 'react-dom'
 import { useEffect, useState } from 'react'
 import { useAppStore } from '../../store/useAppStore'
 
+async function apiExportFcpxml(params: object) {
+  const r = await fetch('/api/export_fcpxml', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  })
+  return r.json()
+}
+
 export default function ExportModal() {
-  const { exportModalOpen, transSegs, analysis, motionState, exportXml } = useAppStore()
+  const { exportModalOpen, transSegs, analysis, motionState, exportXml, params, manualCuts } = useAppStore()
   const [motion, setMotion] = useState(true)
   const [chapters, setChapters] = useState(true)
+  const [fcpStatus, setFcpStatus] = useState('')
 
   const hasSrt = transSegs.length > 0
   const genMotion = Object.keys(motionState).filter((i) => motionState[+i].path && motionState[+i].included)
@@ -45,8 +55,8 @@ export default function ExportModal() {
             <div className="flex items-start gap-3 bg-bg rounded-md px-3 py-2.5 opacity-80">
               <span className="text-accent text-xs mt-0.5">✓</span>
               <span className="min-w-0">
-                <span className="block text-[13px] text-text-primary">Legendas sincronizadas (legenda_premiere.srt)</span>
-                <span className="block text-text-muted text-xs">{transSegs.length} segmento(s) · timecodes ajustados para a timeline cortada</span>
+                <span className="block text-[13px] text-text-primary">Legendas sincronizadas (legenda_premiere.ass)</span>
+                <span className="block text-text-muted text-xs">{transSegs.length} segmento(s) · fonte, cor, posição e palavras-por-vez incluídos</span>
               </span>
             </div>
           )}
@@ -79,6 +89,23 @@ export default function ExportModal() {
             <p className="text-text-muted text-xs">Nenhuma opção extra disponível.</p>
           )}
         </div>
+        {/* exportação DaVinci Resolve */}
+        <div className="border-t border-text-muted/10 pt-3 mb-4">
+          <p className="text-text-muted text-[11px] uppercase tracking-wide mb-2">DaVinci Resolve / Final Cut Pro</p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                setFcpStatus('Gerando…')
+                const d = await apiExportFcpxml({ ...params, manual_cuts: manualCuts })
+                setFcpStatus(d.ok ? `✓ ${d.cuts} cortes → ${d.fcpxml_path}` : `Erro: ${d.error}`)
+              }}
+              className="bg-bg text-text-primary rounded-sm px-3.5 py-2 text-[13px] hover:bg-bg/60 transition-colors"
+            >
+              Exportar FCPXML
+            </button>
+            {fcpStatus && <span className="text-xs text-text-muted break-all">{fcpStatus}</span>}
+          </div>
+        </div>
         <div className="flex justify-end gap-2">
           <button onClick={close} className="bg-bg text-text-primary rounded-sm px-3.5 py-2 text-[13px] hover:bg-bg/60 transition-colors">
             Cancelar
@@ -87,7 +114,7 @@ export default function ExportModal() {
             onClick={() => { close(); exportXml({ includeSrt: hasSrt, includeMotion: motion && hasMotion, includeChapters: chapters && hasChapters }) }}
             className="bg-accent text-on-accent rounded-sm px-3.5 py-2 text-[13px] font-medium hover:bg-accent-hover transition-colors"
           >
-            Exportar
+            Exportar Premiere
           </button>
         </div>
       </div>

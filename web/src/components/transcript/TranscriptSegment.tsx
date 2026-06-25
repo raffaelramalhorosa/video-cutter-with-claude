@@ -1,6 +1,6 @@
 ﻿import { useRef, useEffect, useState } from 'react'
 import { useAppStore } from '../../store/useAppStore'
-import type { AnalysisSegment, SegOverlay } from '../../types'
+import type { AnalysisSegment, SegOverlay, TranscriptSegment as TSeg } from '../../types'
 import { playerRef } from '../player/playerRef'
 
 function fmt(s: number) {
@@ -17,9 +17,19 @@ interface Props {
   seg?: AnalysisSegment
   overlay?: SegOverlay
   active?: boolean
+  isFiller?: boolean
+  isRepetition?: boolean
 }
 
-export default function TranscriptSegment({ index, start, end, text, seg, overlay, active }: Props) {
+async function addToGlossary(word: string) {
+  await fetch('/api/glossary/add', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ word }),
+  })
+}
+
+export default function TranscriptSegment({ index, start, end, text, seg, overlay, active, isFiller, isRepetition }: Props) {
   const { toggleManualCut, manualCuts, updateTransSeg, transSegs } = useAppStore()
   const xRef = useRef<HTMLSpanElement>(null)
   const [suggestionApplied, setSuggestionApplied] = useState(false)
@@ -73,12 +83,16 @@ export default function TranscriptSegment({ index, start, end, text, seg, overla
     if (playerRef.current) { playerRef.current.currentTime = start; playerRef.current.play() }
   }
 
-  const applySuggestion = () => {
+  const applySuggestion = async () => {
     if (!seg?.suggestion) return
     updateTransSeg(index, seg.suggestion)
-    // o useEffect acima vai sincronizar o DOM quando o foco sair do campo
     if (xRef.current) xRef.current.textContent = seg.suggestion
     setSuggestionApplied(true)
+    // se a sugestão for uma correção de transcrição, oferece adicionar ao glossário
+    const issue = seg.issues?.find((i) => i.tipo === 'transcrição')
+    if (issue) {
+      await addToGlossary(issue.correcao)
+    }
   }
 
   return (
@@ -93,12 +107,42 @@ export default function TranscriptSegment({ index, start, end, text, seg, overla
       >
         {fmt(start)} → {fmt(end)}
       </span>
-      {overlay?.status === 'partial' && (
+      {isFiller && (
         <span
-          title="Parte deste trecho cai num silêncio/corte removido"
-          className="text-[11px] text-text-muted border border-text-muted/30 rounded-sm px-1.5 py-0.5 self-center"
+          title="Filler detectado (uh, né, tipo…) — candidato a corte"
+          className="text-[11px] text-text-muted/60 border border-text-muted/20 rounded-sm px-1.5 py-0.5 self-center whitespace-nowrap"
         >
-          borda será cortada
+          filler
+        </span>
+      )}
+      {isRepetition && (
+        <span
+          title="Última palavra repetida no início do próximo segmento — possível falso começo"
+          className="text-[11px] text-amber-500/70 border border-amber-500/25 rounded-sm px-1.5 py-0.5 self-center whitespace-nowrap"
+        >
+          repetição
+        </span>
+      )}
+      {overlay?.status === 'partial' && (() => {
+        const sideLabel = overlay.cut_side === 'start' ? 'início' : overlay.cut_side === 'end' ? 'fim' : 'ambos'
+        const pct = overlay.kept_pct
+        const lost = overlay.lost_words
+        const lostLabel = lost && lost.length > 0 ? `"${lost.join(' ')}"` : null
+        return (
+          <span
+            title={`${sideLabel} deste trecho cai num silêncio/corte removido${lostLabel ? ` — palavras perdidas: ${lostLabel}` : ''}`}
+            className="text-[11px] text-amber-400/80 border border-amber-400/30 rounded-sm px-1.5 py-0.5 self-center whitespace-nowrap"
+          >
+            ✂ {lostLabel ? `${lostLabel} cortado` : pct != null ? `${pct}% cortado` : 'borda cortada'} ({sideLabel})
+          </span>
+        )
+      })()}
+      {overlay?.anchored && overlay.status !== 'cut' && (
+        <span
+          title="Timestamp ancorado: a legenda pode estar ±100ms deslocada neste trecho"
+          className="text-[11px] text-text-muted/50 border border-text-muted/15 rounded-sm px-1 py-0.5 self-center whitespace-nowrap"
+        >
+          ⚓
         </span>
       )}
       <span

@@ -22,6 +22,7 @@ def _caption_style_to_ass(style: dict, preview_h: int) -> str:
     color = hex_to_ass(style.get("color", "#ffffff"))
     stroke = hex_to_ass(style.get("strokeColor", "#000000"))
     stroke_w = int(style.get("strokeWidth", 2))
+    has_bg = bool(style.get("bg", False))
 
     if y_pct < 0.35:
         alignment, margin_v = 8, int(y_pct * preview_h)
@@ -30,13 +31,24 @@ def _caption_style_to_ass(style: dict, preview_h: int) -> str:
     else:
         alignment, margin_v = 5, 0
 
+    if has_bg:
+        # BorderStyle=3 → caixa opaca; BackColour → fundo semi-transparente preto
+        border_style = "BorderStyle=3,BackColour=&H80000000,"
+        outline_shadow = "Outline=0,Shadow=0,"
+    elif stroke_w == 0:
+        # sem fundo e sem contorno → sombra como fallback de legibilidade
+        border_style = ""
+        outline_shadow = f"Outline=0,Shadow=3,OutlineColour={stroke},"
+    else:
+        border_style = ""
+        outline_shadow = f"Outline={stroke_w},Shadow=0,OutlineColour={stroke},"
+
     return (
         f"FontName={style.get('font', 'Arial')},"
         f"FontSize={font_size},"
         f"PrimaryColour={color},"
-        f"OutlineColour={stroke},"
-        f"Outline={stroke_w},"
-        f"Shadow=0,"
+        f"{border_style}"
+        f"{outline_shadow}"
         f"Alignment={alignment},"
         f"MarginV={margin_v}"
     )

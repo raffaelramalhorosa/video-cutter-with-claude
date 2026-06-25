@@ -1,15 +1,17 @@
 ﻿import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../store/useAppStore'
 import TranscriptSegment from './TranscriptSegment'
+import GlossaryPanel from './GlossaryPanel'
 import { apiExportSrt } from '../../api/client'
 import { playerRef } from '../player/playerRef'
 
 export default function TranscriptPanel() {
-  const { transSegs, transOverlay, params, manualCuts, transLang, setTransLang, transcribe, analysis, transStatus, applyAllCuts, analysisPollTries } = useAppStore()
+  const { transSegs, transOverlay, params, manualCuts, transLang, setTransLang, transcribe, analysis, transStatus, applyAllCuts, analysisPollTries, transProgressLines } = useAppStore()
 
   // acompanha o tempo do vídeo para brilhar o segmento que está passando agora
   const [playingIndex, setPlayingIndex] = useState(-1)
   const lastIndexRef = useRef(-1)
+  const segRefs = useRef<(HTMLDivElement | null)[]>([])
   useEffect(() => {
     const tick = () => {
       const t = playerRef.current?.currentTime
@@ -18,6 +20,8 @@ export default function TranscriptPanel() {
       if (idx !== lastIndexRef.current) {
         lastIndexRef.current = idx
         setPlayingIndex(idx)
+        // rola suavemente para o segmento ativo
+        segRefs.current[idx]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
       }
     }
     const timer = setInterval(tick, 150)
@@ -37,6 +41,11 @@ export default function TranscriptPanel() {
 
   const cutSegs = (analysis?.segments ?? []).filter((s) => s.cut)
   const segMap = new Map((analysis?.segments ?? []).map((s) => [s.index, s]))
+  const fillerIndices = transSegs.map((s, i) => s.is_filler ? i : -1).filter((i) => i >= 0)
+  const allFillersApplied = fillerIndices.length > 0 && fillerIndices.every((i) => {
+    const s = transSegs[i]
+    return s && manualCuts.some(([a, b]) => a === s.start && b === s.end)
+  })
 
   return (
     <div className="p-4 flex flex-col h-full">
@@ -72,14 +81,21 @@ export default function TranscriptPanel() {
       </div>
 
       <div className="transcript flex-1 min-h-0 overflow-y-auto">
-        {transSegs.length === 0 && (
+        {transProgressLines.length > 0 && (
+          <div className="font-mono text-[11px] text-text-muted bg-bg-secondary rounded-md px-2.5 py-2 mb-2.5 max-h-28 overflow-y-auto">
+            {transProgressLines.map((l, i) => (
+              <div key={i} className={i === transProgressLines.length - 1 ? 'text-text-primary' : ''}>{l}</div>
+            ))}
+          </div>
+        )}
+        {transSegs.length === 0 && transProgressLines.length === 0 && (
           <div className="text-text-secondary text-[13px] py-2">
             Carregue um vídeo em "Abrir vídeo" para transcrever automaticamente.
           </div>
         )}
-        {analysis?.summary && (
+        {(analysis?.summary || fillerIndices.length > 0) && (
           <div className="ai-summary text-[13px] bg-bg-secondary rounded-md px-2.5 py-2 mb-2.5">
-            {analysis.summary}
+            {analysis?.summary}
             {cutSegs.length > 0 && (() => {
               const allApplied = cutSegs.every((s) => {
                 const seg = transSegs[s.index]
@@ -98,21 +114,37 @@ export default function TranscriptPanel() {
                 </>
               )
             })()}
+            {fillerIndices.length > 0 && (
+              <div className={cutSegs.length > 0 ? 'mt-1.5' : analysis?.summary ? 'mt-2' : ''}>
+                <button
+                  disabled={allFillersApplied}
+                  onClick={() => applyAllCuts(fillerIndices)}
+                  className={`rounded-sm px-2.5 py-1 text-xs border ${allFillersApplied ? 'bg-transparent text-text-muted border-text-muted/30 cursor-not-allowed opacity-60' : 'bg-transparent text-text-secondary border-text-muted/40 hover:bg-bg/40'}`}
+                >
+                  {allFillersApplied ? `✓ ${fillerIndices.length} fillers removidos` : `Remover todos os ${fillerIndices.length} fillers (uh, né, tipo…)`}
+                </button>
+              </div>
+            )}
           </div>
         )}
         {transSegs.map((s, i) => (
-          <TranscriptSegment
-            key={i}
-            index={i}
-            start={s.start}
-            end={s.end}
-            text={s.text}
-            seg={segMap.get(i)}
-            overlay={transOverlay[i]}
-            active={i === playingIndex}
-          />
+          <div key={i} ref={(el) => { segRefs.current[i] = el }}>
+            <TranscriptSegment
+              index={i}
+              start={s.start}
+              end={s.end}
+              text={s.text}
+              seg={segMap.get(i)}
+              overlay={transOverlay[i]}
+              active={i === playingIndex}
+              isFiller={s.is_filler}
+              isRepetition={s.is_repetition}
+            />
+          </div>
         ))}
       </div>
+
+      <GlossaryPanel />
 
       <div className="flex items-center justify-between gap-3 pt-2.5 mt-2 flex-wrap">
         <span className={`flex items-center gap-2 text-xs break-all ${transStatus.ok ? 'text-keep' : 'text-text-secondary'}`}>

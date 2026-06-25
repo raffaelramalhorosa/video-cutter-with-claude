@@ -5,6 +5,7 @@ import TabRevisao from './components/tabs/TabRevisao'
 import TabMotion from './components/tabs/TabMotion'
 import ExportModal from './components/modal/ExportModal'
 import ChatPanel from './components/chat/ChatPanel'
+import ToastContainer from './components/Toast'
 
 export default function App() {
   const { init, activeTab } = useAppStore()
@@ -21,6 +22,7 @@ export default function App() {
       </main>
       <ExportModal />
       <ChatPanel />
+      <ToastContainer />
     </div>
   )
 }

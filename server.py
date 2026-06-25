@@ -22,10 +22,11 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE)
 
 import silence_cut as core  # noqa: E402
+from silence_cut import get_waveform  # noqa: E402
 import state                # noqa: E402
 from analysis import ia_status, read_analysis  # noqa: E402
 from compute import detect                       # noqa: E402
-from export import export, export_srt            # noqa: E402
+from export import export, export_ass, export_srt, export_fcpxml  # noqa: E402
 from motion import load_video, pick_file, render_motion  # noqa: E402
 from preview import make_preview                 # noqa: E402
 from transcribe import transcribe                # noqa: E402
@@ -109,6 +110,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             ctype = "video/quicktime" if state.VIDEO.lower().endswith(".mov") else "video/mp4"
             self._serve_range(state.VIDEO, ctype)
+        elif path == "/preview_media":
+            preview_path = os.path.join(state.OUTDIR, "preview.mp4")
+            if not os.path.isfile(preview_path):
+                self.send_error(404)
+                return
+            self._serve_range(preview_path, "video/mp4")
         elif path.startswith("/motion/"):
             fname = os.path.basename(path)
             fpath = os.path.join(state.OUTDIR, "motion", fname)
@@ -154,12 +161,32 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"available": False})
             else:
                 self._json({"available": False})
+        elif path == "/api/trans_progress":
+            pp = os.path.join(state.OUTDIR, "trans_progress.txt")
+            if not os.path.isfile(pp):
+                self._json({"lines": [], "done": False})
+                return
+            try:
+                with open(pp, encoding="utf-8") as f:
+                    content = f.read()
+                lines = [l for l in content.splitlines() if l.strip() and l.strip() != "__DONE__"]
+                done = "__DONE__" in content
+                self._json({"lines": lines[-20:], "done": done})  # últimas 20 linhas
+            except OSError:
+                self._json({"lines": [], "done": False})
+        elif path == "/api/waveform":
+            if not state.VIDEO:
+                self._json({"available": False})
+                return
+            dur = state.INFO["duration"] if state.INFO else 0
+            self._json({**get_waveform(state.FFMPEG, state.VIDEO, dur), "available": True})
         elif path == "/api/info":
             if not state.INFO:
                 self._json({"video": None})
                 return
             self._json({
                 "video": os.path.basename(state.VIDEO),
+                "video_path": state.VIDEO,
                 "video_dir": os.path.dirname(state.VIDEO),
                 "media": {
                     "duration": round(state.INFO["duration"], 3),
@@ -170,6 +197,25 @@ class Handler(BaseHTTPRequestHandler):
                 "defaults": {"threshold": -30.0, "min_silence": 0.5,
                              "margin": 0.05, "min_clip": 0.3},
             })
+        elif path == "/api/open_folder":
+            import platform, subprocess as _sp
+            # abre a subpasta do vídeo atual se existir, senão abre output/
+            if state.VIDEO:
+                stem = os.path.splitext(os.path.basename(state.VIDEO))[0]
+                sub = os.path.join(state.OUTDIR, stem)
+                folder = os.path.abspath(sub if os.path.isdir(sub) else state.OUTDIR)
+            else:
+                folder = os.path.abspath(state.OUTDIR)
+            try:
+                if platform.system() == "Windows":
+                    _sp.Popen(["explorer", folder])
+                elif platform.system() == "Darwin":
+                    _sp.Popen(["open", folder])
+                else:
+                    _sp.Popen(["xdg-open", folder])
+                self._json({"ok": True})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)})
         else:
             self.send_error(404)
 
@@ -186,12 +232,16 @@ class Handler(BaseHTTPRequestHandler):
             self._json(detect(params))
         elif path == "/api/export":
             self._json(export(params))
+        elif path == "/api/export_fcpxml":
+            self._json(export_fcpxml(params))
         elif path == "/api/preview":
             self._json(make_preview(params))
         elif path == "/api/transcribe":
             self._json(transcribe(params))
         elif path == "/api/export_srt":
             self._json(export_srt(params))
+        elif path == "/api/export_ass":
+            self._json(export_ass(params))
         elif path == "/api/pick":
             self._json(pick_file())
         elif path == "/api/motion/render":
@@ -207,6 +257,43 @@ class Handler(BaseHTTPRequestHandler):
             with open(req_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False)
             self._json({"ok": True, "id": data["id"]})
+        elif path == "/api/glossary/add":
+            word = str(params.get("word", "")).strip()
+            if not word:
+                self._json({"ok": False, "error": "palavra vazia"})
+                return
+            gpath = os.path.join(BASE, "glossario.txt")
+            try:
+                existing = open(gpath, encoding="utf-8").read() if os.path.isfile(gpath) else ""
+                # evita duplicatas (case-insensitive)
+                if word.lower() not in existing.lower():
+                    with open(gpath, "a", encoding="utf-8") as f:
+                        f.write(f", {word}" if existing.strip() else word)
+                self._json({"ok": True, "word": word})
+            except OSError as e:
+                self._json({"ok": False, "error": str(e)})
+        elif path == "/api/glossary":
+            gpath = os.path.join(BASE, "glossario.txt")
+            try:
+                content = open(gpath, encoding="utf-8").read() if os.path.isfile(gpath) else ""
+                words = [w.strip() for w in content.split(",") if w.strip()]
+                self._json({"ok": True, "words": words})
+            except OSError as e:
+                self._json({"ok": False, "words": [], "error": str(e)})
+        elif path == "/api/glossary/remove":
+            word = str(params.get("word", "")).strip()
+            if not word:
+                self._json({"ok": False, "error": "palavra vazia"})
+                return
+            gpath = os.path.join(BASE, "glossario.txt")
+            try:
+                existing = open(gpath, encoding="utf-8").read() if os.path.isfile(gpath) else ""
+                words = [w.strip() for w in existing.split(",") if w.strip() and w.strip().lower() != word.lower()]
+                with open(gpath, "w", encoding="utf-8") as f:
+                    f.write(", ".join(words))
+                self._json({"ok": True, "words": words})
+            except OSError as e:
+                self._json({"ok": False, "error": str(e)})
         elif path == "/api/load_video":
             self._json(load_video(params.get("path", "")))
         else:

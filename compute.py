@@ -5,11 +5,18 @@ import state
 
 
 def get_silences(threshold, min_silence):
-    """Roda silencedetect (custoso) só quando threshold/min_silence/video mudam."""
+    """Roda silencedetect (custoso) só quando threshold/min_silence/video mudam.
+
+    margin e min_clip não entram na chave porque só afetam compute_keeps(),
+    chamado depois — a detecção de silêncio em si não muda com esses valores.
+    """
     key = (state.VIDEO, round(threshold, 3), round(min_silence, 3))
     with state._lock:
         if key in state._cache:
             return state._cache[key]
+        # evita crescimento ilimitado ao explorar muitos thresholds
+        if len(state._cache) >= 30:
+            state._cache.clear()
     silences = core.detect_silence(state.FFMPEG, state.VIDEO, threshold, min_silence)
     with state._lock:
         state._cache[key] = silences

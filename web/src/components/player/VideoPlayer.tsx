@@ -167,6 +167,7 @@ export default function VideoPlayer() {
   const mediaMeta = useAppStore((s) => s.mediaMeta)
   const dur = useAppStore((s) => s.dur)
   const videoTs = useAppStore((s) => s.videoTs)
+  const previewTs = useAppStore((s) => s.previewTs)
   const keeps = useAppStore((s) => s.keeps)
   const skipMode = useAppStore((s) => s.skipMode)
   const setSkipMode = useAppStore((s) => s.setSkipMode)
@@ -325,9 +326,10 @@ export default function VideoPlayer() {
   }, [])
 
   // inputProps estável — deve ficar antes do early return (Rules of Hooks)
+  const videoSrc = previewTs > 0 ? `/preview_media?ts=${previewTs}` : `/media?ts=${videoTs}`
   const inputProps = useMemo(
-    () => ({ src: `/media?ts=${videoTs}`, segments, captionsOn: false }),
-    [videoTs, segments]
+    () => ({ src: videoSrc, segments, captionsOn: false }),
+    [videoSrc, segments]
   )
 
   if (!mediaMeta || dur <= 0) {
@@ -338,6 +340,8 @@ export default function VideoPlayer() {
     )
   }
 
+  // key do Player: muda ao trocar vídeo original OU ao entrar/sair do preview
+  const playerKey = previewTs > 0 ? `prev-${previewTs}` : `orig-${videoTs}`
   const durationInFrames = Math.max(1, Math.round(dur * fps))
 
   return (
@@ -345,7 +349,7 @@ export default function VideoPlayer() {
       {/* wrapper relativo para o overlay da legenda */}
       <div ref={wrapperRef} className="relative w-full max-h-[360px] flex justify-center bg-black rounded-md overflow-hidden">
         <Player
-          key={videoTs}
+          key={playerKey}
           ref={remRef}
           component={FinalVideo}
           inputProps={inputProps}

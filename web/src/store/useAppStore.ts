@@ -1,9 +1,9 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { Keep, Params, TranscriptSegment, Analysis, MotionEntry, ExportOpts, MediaMeta, SegOverlay, CaptionBlock, CaptionStyle, CustomFont } from '../types'
+import type { Keep, Params, TranscriptSegment, Analysis, MotionEntry, ExportOpts, MediaMeta, SegOverlay, CaptionBlock, CaptionStyle, CustomFont, WaveformData, DetectSnapshot } from '../types'
 import {
   apiInfo, apiDetect, apiExport, apiAnalysis, apiTranscribe,
-  apiExportSrt, apiPick, apiMotionRender, apiTranscript,
+  apiExportSrt, apiExportAss, apiPick, apiMotionRender, apiTranscript, apiWaveform, apiLoadVideo,
 } from '../api/client'
 
 interface Status { msg: string; ok: boolean }
@@ -15,6 +15,8 @@ interface AppState {
   videoLabel: string
   videoDir: string
   videoTs: number
+  lastVideoPath: string   // path completo do último vídeo — usado para recarregar na abertura
+  previewTs: number  // > 0 quando o player está exibindo o preview gerado
 
   // cortes
   keeps: Keep[]
@@ -43,6 +45,11 @@ interface AppState {
   transStatus: Status
   exportModalOpen: boolean
   analysisPollTries: number
+  toasts: { id: string; msg: string; icon: string }[]
+  waveform: WaveformData | null
+  paramsHistory: DetectSnapshot[]
+  paramsHistoryIndex: number
+  transProgressLines: string[]   // linhas de progresso ao vivo da transcrição
 
   // actions
   init: () => Promise<void>
@@ -52,6 +59,11 @@ interface AppState {
   startAnalysisPoll: () => void
   stopAnalysisPoll: () => void
   applyAnalysis: (a: Analysis) => void
+  addToast: (msg: string, icon?: string) => void
+  removeToast: (id: string) => void
+  fetchWaveform: () => Promise<void>
+  undoDetect: () => void
+  redoDetect: () => void
   exportXml: (opts: ExportOpts) => Promise<void>
   setParams: (p: Partial<Params>) => void
   toggleManualCut: (start: number, end: number) => void
@@ -94,6 +106,8 @@ export const useAppStore = create<AppState>()(
   videoLabel: '',
   videoDir: '',
   videoTs: 0,
+  lastVideoPath: '',
+  previewTs: 0,
   keeps: [],
   manualCuts: [],
   params: { threshold: -30, min_silence: 0.5, margin: 0.15, min_clip: 0.3 },
@@ -126,16 +140,29 @@ export const useAppStore = create<AppState>()(
   transStatus: { msg: '', ok: false },
   exportModalOpen: false,
   analysisPollTries: 0,
+  toasts: [],
+  waveform: null,
+  paramsHistory: [],
+  paramsHistoryIndex: -1,
+  transProgressLines: [],
 
   init: async () => {
     try {
-      const d = await apiInfo()
+      let d = await apiInfo()
+      // se o servidor não tem vídeo mas tínhamos um salvo, tenta recarregar automaticamente
+      if (!d.video && get().lastVideoPath) {
+        try {
+          const r = await apiLoadVideo(get().lastVideoPath)
+          if (r.ok) d = await apiInfo()
+        } catch (_) {}
+      }
       // não sobrescreve params — o usuário pode ter ajustado e eles ficam no localStorage
       set({
-        dur: d.media.duration,
-        mediaMeta: d.media,
-        videoLabel: d.video,
+        dur: d.media?.duration ?? 0,
+        mediaMeta: d.media ?? null,
+        videoLabel: d.video ?? '',
         videoDir: d.video_dir ?? '',
+        lastVideoPath: d.video_path ?? get().lastVideoPath,
       })
       // se transSegs estava vazio (localStorage antigo ou limpado), restaura do disco
       if (get().transSegs.length === 0) {
@@ -148,6 +175,7 @@ export const useAppStore = create<AppState>()(
         } catch (_) {}
       }
       await get().detect()
+      get().fetchWaveform()
       // tenta carregar análise do disco (versão mais recente);
       // se não disponível, o cache do localStorage permanece intacto
       try {
@@ -165,12 +193,15 @@ export const useAppStore = create<AppState>()(
   },
 
   detect: async () => {
-    const { params, manualCuts, transSegs } = get()
+    const { params, manualCuts, transSegs, paramsHistory, paramsHistoryIndex } = get()
     set({ detecting: true })
     try {
       const segments = transSegs.map((s) => ({ start: s.start, end: s.end }))
       const d = await apiDetect({ ...params, manual_cuts: manualCuts, segments })
-      set({ keeps: d.keeps, transOverlay: d.transcript_overlay ?? [], detecting: false })
+      const snapshot: DetectSnapshot = { params, manualCuts, keeps: d.keeps, transOverlay: d.transcript_overlay ?? [] }
+      // trunca ramo de redo e limita a 30 entradas
+      const newHistory = [...paramsHistory.slice(0, paramsHistoryIndex + 1), snapshot].slice(-30)
+      set({ keeps: d.keeps, transOverlay: d.transcript_overlay ?? [], detecting: false, paramsHistory: newHistory, paramsHistoryIndex: newHistory.length - 1 })
     } catch (e) {
       set({ detecting: false, status: { msg: 'Erro ao calcular cortes.', ok: false } })
     }
@@ -188,6 +219,7 @@ export const useAppStore = create<AppState>()(
         mediaMeta: d.media,
         videoLabel: d.video,
         videoDir: d.video_dir ?? '',
+        lastVideoPath: (d as { video_path?: string }).video_path ?? get().lastVideoPath,
         videoTs: Date.now(),
         manualCuts: [],
         keeps: [],
@@ -196,10 +228,14 @@ export const useAppStore = create<AppState>()(
         captionBlocks: [],
         analysis: null,
         motionState: {},
+        waveform: null,
+        paramsHistory: [],
+        paramsHistoryIndex: -1,
         status: { msg: 'Vídeo carregado: ' + d.video, ok: true },
         transStatus: { msg: '', ok: false },
       })
       await get().detect()
+      get().fetchWaveform()
       await get().transcribe()
     } catch (e) {
       set({ status: { msg: 'Erro ao abrir vídeo.', ok: false } })
@@ -213,10 +249,22 @@ export const useAppStore = create<AppState>()(
       transOverlay: [],
       analysis: null,
       motionState: {},
+      transProgressLines: [],
       transStatus: { msg: 'Transcrevendo com Whisper… pode demorar alguns minutos.', ok: false },
     })
+    // polling de progresso ao vivo enquanto o whisper processa
+    const progressTimer = setInterval(async () => {
+      try {
+        const r = await fetch('/api/trans_progress')
+        const d = await r.json()
+        if (d.lines?.length) set({ transProgressLines: d.lines })
+        if (d.done) clearInterval(progressTimer)
+      } catch (_) {}
+    }, 1500)
     try {
       const d = await apiTranscribe({ language: transLang })
+      clearInterval(progressTimer)
+      set({ transProgressLines: [] })
       if (!d.ok) {
         set({ transStatus: { msg: 'Erro: ' + (d.error ?? 'falha'), ok: false } })
         return
@@ -229,10 +277,12 @@ export const useAppStore = create<AppState>()(
         },
       })
       get().initCaptionBlocks()
+      get().addToast(`Transcrição pronta · ${d.count} segmentos`, '🎙️')
       await get().detect()  // classifica a transcricao contra o corte atual
       get().startAnalysisPoll()  // aplica a analise sozinho assim que o Claude grava analise.json
     } catch (e) {
-      set({ transStatus: { msg: 'Erro ao transcrever.', ok: false } })
+      clearInterval(progressTimer)
+      set({ transProgressLines: [], transStatus: { msg: 'Erro ao transcrever.', ok: false } })
     }
   },
 
@@ -254,6 +304,7 @@ export const useAppStore = create<AppState>()(
           get().applyAnalysis(d)
           const n = (d.segments ?? []).reduce((a: number, s) => a + (s.issues?.length ?? 0), 0)
           set({ transStatus: { msg: `Análise carregada automaticamente · ${n} apontamento(s).`, ok: true } })
+          get().addToast(`Análise de IA pronta · ${n} apontamento(s)`, '🤖')
           get().stopAnalysisPoll()
         }
       } catch (_) {}
@@ -271,9 +322,41 @@ export const useAppStore = create<AppState>()(
     set({ analysis: a })
   },
 
+  addToast: (msg: string, icon = '✅') => {
+    const id = `toast-${Date.now()}-${Math.random()}`
+    set((s) => ({ toasts: [...s.toasts, { id, msg, icon }] }))
+  },
+
+  removeToast: (id: string) => {
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
+  },
+
+  fetchWaveform: async () => {
+    try {
+      const d = await apiWaveform()
+      if (d.available) set({ waveform: d })
+    } catch (_) { /* falha silenciosa — waveform é visual apenas */ }
+  },
+
+  undoDetect: () => {
+    const { paramsHistory, paramsHistoryIndex } = get()
+    if (paramsHistoryIndex <= 0) return
+    const idx = paramsHistoryIndex - 1
+    const snap = paramsHistory[idx]
+    set({ params: snap.params, manualCuts: snap.manualCuts, keeps: snap.keeps, transOverlay: snap.transOverlay, paramsHistoryIndex: idx })
+  },
+
+  redoDetect: () => {
+    const { paramsHistory, paramsHistoryIndex } = get()
+    if (paramsHistoryIndex >= paramsHistory.length - 1) return
+    const idx = paramsHistoryIndex + 1
+    const snap = paramsHistory[idx]
+    set({ params: snap.params, manualCuts: snap.manualCuts, keeps: snap.keeps, transOverlay: snap.transOverlay, paramsHistoryIndex: idx })
+  },
+
   exportXml: async (opts: ExportOpts) => {
     set({ status: { msg: 'Exportando…', ok: false } })
-    const { params, manualCuts, analysis, transSegs, motionState } = get()
+    const { params, manualCuts, analysis, transSegs, motionState, captionStyle } = get()
     const motionIndices = opts.includeMotion
       ? Object.keys(motionState).filter((i) => motionState[+i].path && motionState[+i].included).map(Number)
       : []
@@ -290,11 +373,12 @@ export const useAppStore = create<AppState>()(
       if (motionIndices.length) msg += ` · ${motionIndices.length} motion`
       if (opts.includeSrt && transSegs.length) {
         try {
-          const sd = await apiExportSrt({ segments: transSegs, ...params, manual_cuts: manualCuts })
+          const sd = await apiExportAss({ segments: transSegs, caption_style: captionStyle as Record<string, unknown>, ...params, manual_cuts: manualCuts })
           msg += sd.ok ? ` · legenda (${sd.count} seg)` : ' · falha na legenda'
         } catch (_) { msg += ' · falha na legenda' }
       }
-      set({ status: { msg: `${msg} → ${d.xml_path}`, ok: true } })
+      set({ status: { msg, ok: true } })
+      fetch('/api/open_folder').catch(() => {/* silencioso se falhar */})
     } catch (e) {
       set({ status: { msg: 'Erro ao exportar.', ok: false } })
     }
@@ -475,6 +559,7 @@ export const useAppStore = create<AppState>()(
         videoDir: state.videoDir,
         videoLabel: state.videoLabel,
         videoTs: state.videoTs,
+        lastVideoPath: state.lastVideoPath,
         mediaMeta: state.mediaMeta,
         dur: state.dur,
         manualCuts: state.manualCuts,
@@ -484,6 +569,9 @@ export const useAppStore = create<AppState>()(
         motionState: Object.fromEntries(
           Object.entries(state.motionState).map(([k, v]) => [k, { ...v, generating: false }])
         ),
+        // waveform, paramsHistory, paramsHistoryIndex e toasts são excluídos
+        // intencionalmente — waveform é grande demais para localStorage, paramsHistory
+        // depende da sessão atual, e toasts são efêmeros.
       }),
     }
   )

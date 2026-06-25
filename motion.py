@@ -163,6 +163,7 @@ def load_video(path):
     return {
         "ok": True,
         "video": os.path.basename(state.VIDEO),
+        "video_path": state.VIDEO,
         "video_dir": os.path.dirname(state.VIDEO),
         "media": {
             "duration": round(state.INFO["duration"], 3),

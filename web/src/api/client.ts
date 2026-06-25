@@ -1,4 +1,4 @@
-import type { DetectResult, Keep, MediaMeta, Analysis, TranscriptSegment } from '../types'
+import type { DetectResult, Keep, MediaMeta, Analysis, TranscriptSegment, WaveformData } from '../types'
 
 const post = async <T>(path: string, body: unknown): Promise<T> => {
   const res = await fetch(path, {
@@ -16,12 +16,20 @@ const get = async <T>(path: string): Promise<T> => {
 
 export interface InfoResponse {
   video: string
+  video_path?: string
   media: MediaMeta
   video_dir: string
   defaults: { threshold: number; min_silence: number; margin: number; min_clip: number }
 }
 
+export const apiLoadVideo = (path: string) =>
+  post<{ ok: boolean; video: string; video_path?: string; video_dir: string; media: MediaMeta; error?: string }>(
+    '/api/load_video', { path }
+  )
+
 export const apiInfo = () => get<InfoResponse>('/api/info')
+
+export const apiWaveform = () => get<WaveformData>('/api/waveform')
 
 export const apiAnalysis = () => get<Analysis & { available: boolean }>('/api/analysis')
 
@@ -73,6 +81,16 @@ export const apiExportSrt = (params: {
   min_clip: number
   manual_cuts: [number, number][]
 }) => post<{ ok: boolean; count: number; srt_path: string; error?: string }>('/api/export_srt', params)
+
+export const apiExportAss = (params: {
+  segments: TranscriptSegment[]
+  caption_style: Record<string, unknown>
+  threshold: number
+  min_silence: number
+  margin: number
+  min_clip: number
+  manual_cuts: [number, number][]
+}) => post<{ ok: boolean; count: number; ass_path: string; error?: string }>('/api/export_ass', params)
 
 export const apiPick = () =>
   post<{ ok: boolean; cancelled?: boolean; video: string; media: MediaMeta; video_dir: string; error?: string }>(

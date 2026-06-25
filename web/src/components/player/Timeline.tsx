@@ -31,6 +31,10 @@ export default function Timeline() {
   const keeps        = useAppStore((s) => s.keeps)
   const transSegs    = useAppStore((s) => s.transSegs)
   const transOverlay = useAppStore((s) => s.transOverlay)
+  const detecting    = useAppStore((s) => s.detecting)
+  const waveform     = useAppStore((s) => s.waveform)
+  const threshold    = useAppStore((s) => s.params.threshold)
+  const editSuggs    = useAppStore((s) => s.analysis?.edit_suggestions ?? [])
   const {
     captionBlocks,
     splitCaptionBlock, mergeCaptionBlock, setCaptionBlockStyle, toggleCaptionBlockWord,
@@ -39,6 +43,7 @@ export default function Timeline() {
   const outerRef    = useRef<HTMLDivElement>(null)
   const playheadRef = useRef<HTMLDivElement>(null)
   const hlRef       = useRef<HTMLDivElement>(null)
+  const cutPreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const draggingRef   = useRef(false)
   const rafRef        = useRef<number>(0)
@@ -216,6 +221,27 @@ export default function Timeline() {
     (window as unknown as Record<string, unknown>).__hideHL    = hideHighlight
   }, [highlightSegment, hideHighlight])
 
+  // preview de áudio ao passar o mouse sobre um corte: toca 1.5s antes e depois do ponto de corte
+  const previewCutAudio = useCallback((cutTime: number) => {
+    const player = playerRef.current
+    if (!player || player.paused === false) return  // só quando pausado
+    if (cutPreviewTimerRef.current) clearTimeout(cutPreviewTimerRef.current)
+    const PREVIEW_DUR = 1.5
+    const before = Math.max(0, cutTime - PREVIEW_DUR)
+    player.currentTime = before
+    player.play().catch(() => {})
+    cutPreviewTimerRef.current = setTimeout(() => {
+      // pula para depois do corte (próximo keep após cutTime)
+      const nextKeep = keeps.find((k) => k.in >= cutTime)
+      if (nextKeep) {
+        player.currentTime = nextKeep.in
+        setTimeout(() => player.pause(), PREVIEW_DUR * 1000)
+      } else {
+        player.pause()
+      }
+    }, PREVIEW_DUR * 1000)
+  }, [keeps])
+
   // ações do bloco selecionado
   const handleSplit = useCallback((afterWordIndex: number) => {
     if (!selectedId) return
@@ -290,6 +316,91 @@ export default function Timeline() {
         >
           <div className="absolute inset-0 bg-cut/20" />
 
+          {/* waveform SVG bicolor: verde nos keeps, vermelho nos cortes */}
+          {waveform && waveform.available && dur > 0 && visibleDur > 0 && (() => {
+            const { samples, samples_per_sec, max_db } = waveform
+            const totalSamples = samples.length
+            const vW = 1000, vH = 48
+            const startIdx = Math.floor(clampedOffset * samples_per_sec)
+            const endIdx   = Math.ceil((clampedOffset + visibleDur) * samples_per_sec)
+            const pts: string[] = []
+            for (let i = startIdx; i <= endIdx && i < totalSamples; i++) {
+              const t  = i / samples_per_sec
+              const x  = ((t - clampedOffset) / visibleDur) * vW
+              const y  = vH - (samples[i] / 255) * vH
+              pts.push(`${x.toFixed(1)},${y.toFixed(1)}`)
+            }
+            const threshY = (1 - Math.pow(10, (threshold - max_db) / 20)) * vH
+            // clipPaths para regiões kept (verde) e kept total
+            const keptRects = keeps.map((k) => {
+              const x = ((k.in - clampedOffset) / visibleDur) * vW
+              const w = ((k.out - k.in) / visibleDur) * vW
+              return { x, w }
+            })
+            const ptsStr = pts.join(' ')
+            return (
+              <svg
+                className="absolute inset-0 w-full h-full pointer-events-none"
+                viewBox={`0 0 ${vW} ${vH}`}
+                preserveAspectRatio="none"
+                style={{ opacity: 0.45 }}
+              >
+                <defs>
+                  <clipPath id="wave-kept">
+                    {keptRects.map((r, i) => (
+                      <rect key={i} x={r.x} y={0} width={r.w} height={vH} />
+                    ))}
+                  </clipPath>
+                  <clipPath id="wave-cut">
+                    {/* tudo que não é kept */}
+                    <rect x={-10} y={0} width={vW + 20} height={vH} />
+                  </clipPath>
+                </defs>
+                {/* camada vermelha (cut) — aparece onde não há clipPath kept */}
+                {pts.length > 1 && (
+                  <polyline points={ptsStr} fill="none" stroke="#e05555" strokeWidth="1.5" />
+                )}
+                {/* camada verde (kept) — sobrepõe nas regiões mantidas */}
+                {pts.length > 1 && (
+                  <polyline points={ptsStr} fill="none" stroke="var(--color-keep)" strokeWidth="1.5" clipPath="url(#wave-kept)" />
+                )}
+                <line
+                  x1="0" y1={threshY.toFixed(1)}
+                  x2={vW} y2={threshY.toFixed(1)}
+                  stroke="var(--color-accent)"
+                  strokeWidth="1"
+                  strokeDasharray="4 3"
+                />
+              </svg>
+            )
+          })()}
+
+          {/* marcadores de edit_suggestions da IA */}
+          {editSuggs.map((es, i) => {
+            const left  = toPct(es.start_s)
+            const width = visibleDur > 0 ? ((es.end_s - es.start_s) / visibleDur) * 100 : 0
+            if (width < 0.1) return null
+            return (
+              <div
+                key={i}
+                title={`[${es.tipo}] ${es.sugestao}`}
+                className="absolute bottom-0 h-[3px] pointer-events-auto cursor-help z-10"
+                style={{
+                  left: `${left}%`,
+                  width: `${Math.max(0.5, width)}%`,
+                  background: 'rgba(139,92,246,0.7)',  // roxo suave
+                }}
+              />
+            )
+          })}
+
+          {/* overlay enquanto calcula */}
+          {detecting && (
+            <div className="absolute inset-0 bg-bg/40 flex items-center justify-center pointer-events-none z-10">
+              <span className="text-[10px] text-text-muted animate-pulse">calculando…</span>
+            </div>
+          )}
+
           {keeps.map((k, i) =>
             dur > 0 ? (
               <div
@@ -304,13 +415,19 @@ export default function Timeline() {
             transOverlay[i]?.status === 'cut' ? (
               <div
                 key={`cut-${i}`}
-                className="absolute top-0 bottom-0 pointer-events-none"
+                className="absolute top-0 bottom-0"
                 style={{
                   left: toPct(s.start) + '%',
                   width: Math.max(0.3, (s.end - s.start) / visibleDur * 100) + '%',
                   background: 'rgba(120,120,130,0.55)',
                   borderLeft: '1px solid rgba(160,160,170,0.7)',
                   borderRight: '1px solid rgba(160,160,170,0.7)',
+                  cursor: 'crosshair',
+                }}
+                title={`Corte: ${fmt(s.start)} → ${fmt(s.end)} — passe o mouse para prévia de áudio`}
+                onMouseEnter={() => previewCutAudio(s.start)}
+                onMouseLeave={() => {
+                  if (cutPreviewTimerRef.current) clearTimeout(cutPreviewTimerRef.current)
                 }}
               />
             ) : null
