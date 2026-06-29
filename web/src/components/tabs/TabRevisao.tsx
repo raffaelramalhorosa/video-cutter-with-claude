@@ -1,20 +1,51 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
+import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels'
+import { Download, Pause, Play, Scissors, SlidersHorizontal, WandSparkles } from 'lucide-react'
 import VideoPlayer from '../player/VideoPlayer'
-import Timeline from '../player/Timeline'
-import CaptionStylePanel from '../player/CaptionStylePanel'
 import ParamsPanel from '../params/ParamsPanel'
 import { useAppStore } from '../../store/useAppStore'
+import { useTimelineSync } from '../../store/useTimelineSync'
 import { apiPreview } from '../../api/client'
 import { playerRef } from '../player/playerRef'
-import TranscriptPanel from '../transcript/TranscriptPanel'
+import ScriptRail from '../hud/ScriptRail'
+import MediaBin from '../hud/MediaBin'
+import InspectorPanel from '../hud/InspectorPanel'
+import TimelineEditor from '../timeline/TimelineEditor'
+import { timelineDocumentToKeeps } from '../../timeline-core'
+
+function ResizeHandle({ axis = 'vertical' }: { axis?: 'vertical' | 'horizontal' }) {
+  return (
+    <PanelResizeHandle
+      className={[
+        'group relative shrink-0 bg-transparent outline-none',
+        axis === 'vertical' ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize',
+      ].join(' ')}
+    >
+      <span
+        className={[
+          'absolute bg-white/8 group-hover:bg-fuchsia-400/45 transition-colors',
+          axis === 'vertical' ? 'inset-y-0 left-1/2 w-px -translate-x-1/2' : 'inset-x-0 top-1/2 h-px -translate-y-1/2',
+        ].join(' ')}
+      />
+    </PanelResizeHandle>
+  )
+}
+
+function fmt(s: number) {
+  if (!Number.isFinite(s) || s <= 0) return '0:00'
+  const m = Math.floor(s / 60)
+  const sec = Math.floor(s % 60)
+  return `${m}:${sec.toString().padStart(2, '0')}`
+}
 
 export default function TabRevisao() {
+  useTimelineSync()
   const [renderingPreview, setRenderingPreview] = useState(false)
-  const { keeps, skipMode, setSkipMode, status, params, manualCuts, detecting, transSegs, captionStyle } = useAppStore()
+  const { keeps, skipMode, setSkipMode, status, params, manualCuts, detecting, transSegs, captionStyle, mediaMeta, timelineDocument } = useAppStore()
   const previewTs = useAppStore((s) => s.previewTs)
   const dur = useAppStore((s) => s.dur)
   const kept = keeps.reduce((a, k) => a + k.out - k.in, 0)
-  const removed = dur - kept
+  const removed = Math.max(0, dur - kept)
 
   const handleSkip = () => {
     if (skipMode) { playerRef.current?.pause(); setSkipMode(false); return }
@@ -28,11 +59,12 @@ export default function TabRevisao() {
 
   const handlePreview = async () => {
     setRenderingPreview(true)
-    useAppStore.setState({ status: { msg: 'Renderizando preview…', ok: false } })
+    useAppStore.setState({ status: { msg: 'Renderizando preview...', ok: false } })
     try {
       const d = await apiPreview({
         ...params,
         manual_cuts: manualCuts,
+        timeline_keeps: timelineDocumentToKeeps(timelineDocument),
         segments: transSegs,
         caption_style: captionStyle,
       })
@@ -47,90 +79,126 @@ export default function TabRevisao() {
   }
 
   return (
-    <div className="flex">
+    <div className="h-full min-h-0 bg-[#050608] text-text-primary overflow-hidden">
+      <PanelGroup orientation="horizontal" className="h-full min-h-0">
 
-      {/* sidebar de legenda — esquerda, altura total da página */}
-      <div className="sticky top-11 h-[calc(100vh-44px)] shrink-0">
-        <CaptionStylePanel />
-      </div>
+        {/* Coluna esquerda: Script / IA — altura total */}
+        <Panel defaultSize={18} minSize={15} maxSize={28}>
+          <ScriptRail />
+        </Panel>
+        <ResizeHandle />
 
-      {/* coluna principal — tudo à direita da sidebar */}
-      <div className="flex-1 min-w-0 flex flex-col">
+        {/* Coluna direita: cards em cima + timeline em baixo */}
+        <Panel defaultSize={82} minSize={60}>
+          <PanelGroup orientation="vertical" className="h-full min-h-0">
 
-        <ParamsPanel />
+            {/* Linha de cima: Media | Preview | Inspector */}
+            <Panel defaultSize={58} minSize={40}>
+              <PanelGroup orientation="horizontal" className="h-full min-h-0">
 
-        {/* player + timelines */}
-        <div className="px-4 pt-3 pb-2">
-          {detecting && (
-            <div className="flex items-center gap-2 mb-2 text-text-secondary text-[12px]">
-              <span className="w-3.5 h-3.5 rounded-full border-2 border-text-muted/30 border-t-accent animate-spin shrink-0" />
-              Calculando cortes… pode levar alguns minutos em vídeos longos.
-            </div>
-          )}
-          {previewTs > 0 && (
-            <div className="flex items-center justify-between mb-2 px-3 py-1.5 bg-accent/15 border border-accent/30 rounded-sm text-[12px]">
-              <span className="text-accent font-medium">▶ Você está vendo o preview gerado (com cortes e legendas queimadas)</span>
-              <button
-                onClick={() => useAppStore.setState({ previewTs: 0 })}
-                className="text-text-muted hover:text-text-primary transition-colors ml-4 shrink-0"
-              >
-                ✕ Voltar ao original
-              </button>
-            </div>
-          )}
-          <VideoPlayer />
-          <Timeline />
-        </div>
+                {/* Card Media Bin */}
+                <Panel defaultSize={18} minSize={14} maxSize={28}>
+                  <MediaBin />
+                </Panel>
+                <ResizeHandle />
 
-        {/* stats + ações */}
-        <div className="px-4 py-4 border-t border-text-muted/10">
-          <div className="flex gap-5 flex-wrap mb-4">
-            <div>
-              <div className="text-text-muted text-[11px] uppercase tracking-wide">Original</div>
-              <div className="text-[22px] font-semibold tabular-nums">{dur.toFixed(1)}s</div>
-            </div>
-            <div>
-              <div className="text-text-muted text-[11px] uppercase tracking-wide">Final</div>
-              <div className="text-[22px] font-semibold tabular-nums text-keep">{kept.toFixed(1)}s</div>
-            </div>
-            <div>
-              <div className="text-text-muted text-[11px] uppercase tracking-wide">Removido</div>
-              <div className="text-[22px] font-semibold tabular-nums">{removed.toFixed(1)}s</div>
-            </div>
-            <div>
-              <div className="text-text-muted text-[11px] uppercase tracking-wide">Cortes</div>
-              <div className="text-[22px] font-semibold tabular-nums">{keeps.length}</div>
-            </div>
-          </div>
+                {/* Card Preview */}
+                <Panel defaultSize={55} minSize={35}>
+                  <section className="h-full min-h-0 flex flex-col bg-[#07090b]">
+                    <div className="h-9 px-3 border-b border-white/8 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-text-secondary font-medium">Program Monitor</span>
+                        {detecting && (
+                          <span className="text-[10px] text-fuchsia-200/80 animate-pulse">calculando cortes...</span>
+                        )}
+                        {previewTs > 0 && (
+                          <button
+                            onClick={() => useAppStore.setState({ previewTs: 0 })}
+                            className="text-[10px] px-2 py-0.5 rounded-sm bg-fuchsia-500/15 text-fuchsia-200 border border-fuchsia-400/20"
+                          >
+                            preview ativo · voltar ao original
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 text-[10px] text-text-muted tabular-nums">
+                        <span>16:9</span>
+                        <span>{mediaMeta ? `${mediaMeta.fps} fps` : '24 fps'}</span>
+                        <span>{mediaMeta ? `${mediaMeta.width}x${mediaMeta.height}` : '1920x1080'}</span>
+                      </div>
+                    </div>
 
-          <div className="flex gap-2 flex-wrap items-center">
-            <button onClick={handleSkip}
-              className="bg-bg-secondary text-text-primary rounded-sm px-3.5 py-2 text-[13px] hover:bg-bg-secondary/70 transition-colors min-w-[160px] text-center">
-              {skipMode ? '⏸ Parar revisão' : '▶ Revisar cortes'}
-            </button>
-            <button onClick={handlePreview} disabled={renderingPreview}
-              className="bg-bg-secondary text-text-primary rounded-sm px-3.5 py-2 text-[13px] hover:bg-bg-secondary/70 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-              {renderingPreview ? '⏳ Gerando…' : 'Gerar preview'}
-            </button>
-            <button
-              onClick={() => useAppStore.setState({ exportModalOpen: true })}
-              className="bg-accent text-on-accent rounded-sm px-3.5 py-2 text-[13px] font-medium hover:bg-accent-hover transition-colors">
-              Exportar para o Premiere (XML)
-            </button>
-            {status.msg && (
-              <span className={`text-[12px] ${status.ok ? 'text-keep' : 'text-text-secondary'}`}>
-                {status.msg}
-              </span>
-            )}
-          </div>
-        </div>
+                    <div className="min-h-0 flex-1 flex items-center justify-center px-4 py-3 bg-[#050608]">
+                      <div className="w-full max-w-[980px]">
+                        <VideoPlayer />
+                      </div>
+                    </div>
 
-        {/* transcrição — sticky ao topo, scroll interno */}
-        <div className="sticky top-11 h-[calc(100vh-44px)] overflow-hidden border-t border-text-muted/10">
-          <TranscriptPanel />
-        </div>
+                    <div className="h-12 px-3 border-t border-white/8 flex items-center gap-2 bg-[#090b0e]">
+                      <span className="text-[11px] text-fuchsia-200 tabular-nums min-w-[54px]">{fmt(kept)}</span>
+                      <button onClick={handleSkip} className="hud-icon-btn" title={skipMode ? 'Parar revisao' : 'Revisar cortes'}>
+                        {skipMode ? <Pause size={15} /> : <Play size={15} />}
+                      </button>
+                      <button onClick={handlePreview} disabled={renderingPreview} className="hud-action-btn" title="Gerar preview">
+                        <WandSparkles size={14} />
+                        {renderingPreview ? 'Gerando' : 'Preview'}
+                      </button>
+                      <button
+                        onClick={() => useAppStore.setState({ exportModalOpen: true })}
+                        className="hud-action-btn hud-action-primary"
+                        title="Exportar para Premiere"
+                      >
+                        <Download size={14} />
+                        Export
+                      </button>
+                      {status.msg && (
+                        <span className={`ml-auto text-[11px] truncate ${status.ok ? 'text-keep' : 'text-text-secondary'}`}>
+                          {status.msg}
+                        </span>
+                      )}
+                    </div>
+                  </section>
+                </Panel>
+                <ResizeHandle />
 
-      </div>
+                {/* Card Inspector */}
+                <Panel defaultSize={27} minSize={18} maxSize={36}>
+                  <InspectorPanel />
+                </Panel>
+
+              </PanelGroup>
+            </Panel>
+
+            <ResizeHandle axis="horizontal" />
+
+            {/* Timeline — largura máxima */}
+            <Panel defaultSize={42} minSize={25}>
+              <section className="h-full min-h-0 flex flex-col bg-[#07090b] border-t border-white/8">
+                <div className="h-10 px-3 border-b border-white/8 flex items-center gap-2">
+                  <span className="text-[11px] text-text-secondary font-medium mr-2">Timeline</span>
+                  <button className="hud-icon-btn" title="Ferramenta de corte">
+                    <Scissors size={14} />
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <ParamsPanel />
+                  </div>
+                  <div className="ml-auto flex items-center gap-4 text-[10px] text-text-muted tabular-nums">
+                    <span>Original {fmt(dur)}</span>
+                    <span>Final {fmt(kept)}</span>
+                    <span>Removed {fmt(removed)}</span>
+                    <span>{keeps.length} cuts</span>
+                    <SlidersHorizontal size={13} />
+                  </div>
+                </div>
+                <div className="min-h-0 flex-1 overflow-hidden">
+                  <TimelineEditor />
+                </div>
+              </section>
+            </Panel>
+
+          </PanelGroup>
+        </Panel>
+
+      </PanelGroup>
     </div>
   )
 }
